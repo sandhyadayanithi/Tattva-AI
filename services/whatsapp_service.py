@@ -17,9 +17,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Folder where downloaded media will be stored
 AUDIO_DIR = BASE_DIR / "audio_files"
+MEDIA_DIR = BASE_DIR / "media_files"
 
-# Ensure the directory exists
+# Ensure the directories exist
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 async def _request_with_retry(method: str, url: str, **kwargs):

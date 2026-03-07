@@ -127,7 +127,7 @@ async def handle_voice_message_pipeline(sender_id: str, media_id: str):
     try:
         await send_message(sender_id, "Voice note received! 🎤 analyzing...")
         # 1. Download audio file locally
-        local_path = await download_media(media_id, folder="audio_files")
+        local_path = await download_media(media_id)
         if not local_path:
             logger.error(f"Could not download audio for media_id {media_id}")
             await send_message(sender_id, "I encountered an error while trying to download your voice note.")
@@ -148,7 +148,7 @@ async def background_process_audio_and_reply(sender_id: str, local_path: str, cl
     """Background task to run the AI pipeline for audio and send the result back via WhatsApp."""
     try:
         # 1. Run Pipeline (Whisper + Claim Extractor)
-        pipeline_result = await process_audio(audio_path)
+        pipeline_result = await process_audio(local_path)
         extracted_claim = pipeline_result.get("claim")
         detected_language = pipeline_result.get("language_name", pipeline_result.get("language", "English"))
         transcription = pipeline_result.get("text")
@@ -162,7 +162,7 @@ async def background_process_audio_and_reply(sender_id: str, local_path: str, cl
             sender_id=sender_id,
             extracted_claim=extracted_claim,
             full_text=transcription,
-            file_path=audio_path,
+            file_path=local_path,
             media_type="audio",
             language=detected_language
         )
@@ -177,7 +177,7 @@ async def background_process_image_and_reply(sender_id: str, media_id: str):
         await send_message(sender_id, "Image received! 📸 extracting text...")
         
         # 1. Download media locally
-        local_path = await download_media(media_id, folder="images")
+        local_path = await download_media(media_id)
         if not local_path:
             await send_message(sender_id, "Sorry, I couldn't download the image.")
             return
@@ -202,8 +202,9 @@ async def background_process_image_and_reply(sender_id: str, media_id: str):
         extracted_claim = extraction_result.get("claim")
         detected_language = extraction_result.get("language", "English")
         
+        import time
         time.sleep(3) # Increased pause for Free Tier stability
-        await handle_claim_verification(sender_id, extracted_claim, extracted_text, image_path, media_type="image", language=detected_language)
+        await handle_claim_verification(sender_id, extracted_claim, extracted_text, local_path, media_type="image", language=detected_language)
         
     except Exception as e:
         logger.error(f"Error processing image in background: {e}")
