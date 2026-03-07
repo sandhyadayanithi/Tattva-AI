@@ -8,7 +8,7 @@ load_dotenv()
 from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks
 import logging
 from core.config import settings
-from services.whatsapp import download_media, send_message
+from services.whatsapp_service import download_media, send_message, mark_as_read
 import json
 from ai.transcription import transcribe_audio
 from ai.claim_extractor import ClaimExtractor
@@ -50,22 +50,24 @@ async def verify_webhook(request: Request):
 @app.post("/webhook")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     """
-    Incoming webhook for WhatsApp messages.
+    Incoming webhook for WhatsApp messages from Meta API.
     """
-    body = await request.json()
-    logger.info(f"Incoming webhook: {body}")
-    
-    # Expected Meta structure parsing
     try:
-        # Check if it's a message event
-        if "object" in body and body["object"] == "whatsapp_business_account":
+        body = await request.json()
+        logger.info(f"Incoming WhatsApp webhook: {json.dumps(body)}")
+        
+        # Meta sends a list of changes
+        if body.get("object") == "whatsapp_business_account":
             for entry in body.get("entry", []):
-                for changes in entry.get("changes", []):
-                    value = changes.get("value", {})
-                    # Ensure it's a message, not a status update
+                for change in entry.get("changes", []):
+                    value = change.get("value", {})
                     if "messages" in value:
                         for message in value["messages"]:
                             sender_id = message.get("from")
+                            message_id = message.get("id")
+                            
+                            # Mark message as read
+                            background_tasks.add_task(mark_as_read, message_id)
                             
                             if message.get("type") == "audio":
                                 audio = message.get("audio", {})
@@ -101,8 +103,8 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
         return Response(content="EVENT_RECEIVED", status_code=200)
 
     except Exception as e:
-        logger.error(f"Error processing webhook: {e}")
-        return Response(content="ERROR", status_code=500)
+        logger.error(f"Error handling webhook: {str(e)}")
+        return Response(content="ERROR", status_code=200) # Always return 200 to Meta to avoid retries on processing errors
 
 @app.get("/messages/recent")
 async def get_recent():
@@ -123,6 +125,23 @@ async def test_claim(claim: str, verdict: str, explanation: str):
 
 
 
+async def handle_voice_message_pipeline(sender_id: str, media_id: str):
+    """Downloads audio and triggers the full AI pipeline."""
+    try:
+        # 1. Download audio file
+        audio_path = await download_media(media_id)
+        if not audio_path:
+            logger.error(f"Could not download audio for media_id {media_id}")
+            await send_message(sender_id, "I encountered an error while trying to download your voice note.")
+            return
+
+        # 2. Trigger existing pipeline
+        await background_process_audio_and_reply(sender_id, audio_path)
+
+    except Exception as e:
+        logger.error(f"Error in voice pipeline: {str(e)}")
+        await send_message(sender_id, "An unexpected error occurred while processing your request.")
+
 async def background_process_audio_and_reply(sender_id: str, audio_path: str):
     """Background task to run the AI pipeline for audio and send the result back via WhatsApp."""
     try:
@@ -131,9 +150,49 @@ async def background_process_audio_and_reply(sender_id: str, audio_path: str):
         extracted_claim = pipeline_result.get("claim")
         transcription = pipeline_result.get("text")
         
-        import time
-        time.sleep(1) # Quota stabilization
-        await handle_claim_verification(sender_id, extracted_claim, transcription, audio_path, media_type="audio")
+        if not extracted_claim:
+            await send_message(sender_id, "I couldn't extract a clear claim from your audio.")
+            return
+
+        # 2. Fact-Check the claim (Checks Vector Cache internally)
+        engine = FactCheckerEngine(use_llm=USE_LLM)
+        fact_check_result = engine.check_claim(extracted_claim)
+        
+        verdict = fact_check_result.get("verdict", "Unknown")
+        explanation = fact_check_result.get("explanation", "No explanation provided.")
+        confidence = fact_check_result.get("confidence_level", "Low")
+        
+        if fact_check_result.get("cached"):
+            logger.info("Found similar claim in cache.")
+            reply_text = (
+                f"🔍 *Previous Fact-Check Found*\n\n"
+                f"*Claim Detected:* \"{fact_check_result.get('claim', extracted_claim)}\"\n\n"
+                f"*Verdict:* {verdict}\n\n"
+                f"*Explanation:* {explanation}"
+            )
+        else:
+            reply_text = (
+                f"✅ *Fact-Check Complete*\n\n"
+                f"*Claim Detected:* \"{extracted_claim}\"\n\n"
+                f"*Verdict:* {verdict}\n\n"
+                f"*Explanation:* {explanation}"
+            )
+        
+        # 3. Store in Firestore (FirebaseService)
+        message_data = MessageRecord(
+            user_number=sender_id,
+            audio_file=audio_path,
+            transcription=transcription,
+            claim=extracted_claim,
+            verdict=verdict,
+            explanation=explanation,
+            confidence=0.9 if confidence == "High" else 0.5, # Mapping scale
+            raw_fact_check_response=fact_check_result
+        )
+        firebase_service.save_message(message_data)
+
+        # 4. Send the final response
+        await send_message(sender_id, reply_text)
         
     except Exception as e:
         logger.error(f"Error processing audio in background: {e}")
