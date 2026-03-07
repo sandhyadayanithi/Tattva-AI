@@ -9,8 +9,8 @@ from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks
 import logging
 from core.config import settings
 from services.whatsapp import download_media, send_message
-from whisper_service import transcribe_audio
-from claim_extractor import ClaimExtractor
+from services.whisper_service import transcribe_audio
+from services.claim_extractor import ClaimExtractor
 
 # --- CONFIGURATION ---
 # Set this to False if you only want to test Whisper and save Gemini API calls
