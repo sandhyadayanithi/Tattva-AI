@@ -151,43 +151,15 @@ async def background_process_audio_and_reply(sender_id: str, audio_path: str):
             await send_message(sender_id, "I couldn't extract a clear claim from your audio.")
             return
 
-        # 2. Fact-Check the claim (Checks Vector Cache internally)
-        engine = FactCheckerEngine(use_llm=settings.USE_LLM)
-        fact_check_result = engine.check_claim(extracted_claim)
-        
-        verdict = fact_check_result.get("verdict", "Unknown")
-        explanation = fact_check_result.get("explanation", "No explanation provided.")
-        confidence = fact_check_result.get("confidence_level", "Low")
-        
-        # If there's a specific counter message provided by the FactCheckerEngine, use it. 
-        # Otherwise, fallback to a standard disclaimer as the Result/Counter-Message.
-        counter_message = fact_check_result.get("counter_message", "Please verify facts through trusted news sources before forwarding on WhatsApp.")
-        
-        # The user wants exact format: Verdict, Result (Counter Message), Explanation
-        reply_text = (
-            f"✅ *Fact-Checked Result*\n\n"
-            f"*Verdict:* {verdict}\n\n"
-            f"*Result:* {counter_message}\n\n"
-            f"_Explanation:_ {explanation}"
+        # 2. Fact-Check, Store, and Reply (Unified logic)
+        await handle_claim_verification(
+            sender_id=sender_id,
+            extracted_claim=extracted_claim,
+            full_text=transcription,
+            file_path=audio_path,
+            media_type="audio",
+            language=detected_language
         )
-        # 3. Store in Firestore (FirebaseService)
-        message_data = MessageRecord(
-            user_number=sender_id,
-            audio_file=audio_path,
-            transcription=transcription,
-            claim=extracted_claim,
-            verdict=verdict,
-            explanation=explanation,
-            confidence=0.9 if confidence == "High" else 0.5, # Mapping scale
-            raw_fact_check_response=fact_check_result
-        )
-        firebase_service.save_message(message_data)
-
-        
-        # 4. If new claim and was fact-checked (not needed now for placeholder), 
-        # normally we'd do: vector_service.store_claim_embedding(extracted_claim, verdict, explanation)
-
-        await send_message(sender_id, reply_text)
         
     except Exception as e:
         logger.error(f"Error processing audio in background: {e}")
@@ -262,49 +234,50 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
     engine = FactCheckerEngine()
     fact_check_result = engine.check_claim(extracted_claim, language=language)
     
-    # Dual-language logic
-    # Regional for WhatsApp
-    verdict_reg = fact_check_result.get("verdict_reg", "Unknown")
-    explanation_reg = fact_check_result.get("explanation_reg", "No explanation provided.")
-    counter_message_reg = fact_check_result.get("counter_message_reg", "")
+    # 3. Prepare Nest Data
+    fact_check_data = {
+        "verdict": fact_check_result.get("verdict_en", "Unknown"),
+        "explanation": fact_check_result.get("explanation_en", "No explanation provided."),
+        "counter_message": fact_check_result.get("counter_message_en"),
+        "confidence": fact_check_result.get("confidence_score", 0.0),
+        "virality_score": fact_check_result.get("virality_score", 0),
+        "cached": fact_check_result.get("cached", False)
+    }
     
-    # English for Firestore
-    verdict_en = fact_check_result.get("verdict_en", "Unknown")
-    explanation_en = fact_check_result.get("explanation_en", "No explanation provided.")
-    counter_message_en = fact_check_result.get("counter_message_en", "")
+    # Regional overrides for the WhatsApp reply (if available)
+    verdict_reg = fact_check_result.get("verdict_reg", fact_check_data["verdict"])
+    explanation_reg = fact_check_result.get("explanation_reg", fact_check_data["explanation"])
+    counter_message_reg = fact_check_result.get("counter_message_reg", fact_check_data["counter_message"])
     
-    confidence = fact_check_result.get("confidence_score", 0.0)
-    virality_score = fact_check_result.get("virality_score", 0)
-    
-    if fact_check_result.get("cached"):
-        logger.info("Found similar claim in cache.")
-        header = "🔍 *Found a Similar Cached Claim*"
-    else:
-        header = "✅ *Fact-Checked Result*"
-
-    reply_text = (
-        f"{header}\n\n"
-        f"✅ *Verdict:* {verdict_reg}\n\n"
-        f"📩 *Counter Message:* {counter_message_reg}\n\n"
-        f"📝 *Explanation:* {explanation_reg}"
-    )
-    
-    # 3. Store in Firestore (English ONLY)
+    # 4. Store in Firestore
     message_data = MessageRecord(
         user_number=sender_id,
         audio_file=file_path if media_type == "audio" else None,
         image_file=file_path if media_type == "image" else None,
         transcription=full_text, 
         claim=extracted_claim,
-        verdict=verdict_en,
-        explanation=explanation_en,
-        confidence=confidence,
-        virality_score=virality_score,
-        counter_message=counter_message_en,
-        raw_fact_check_response=fact_check_result
+        fact_check=fact_check_data,
+        ai_response=fact_check_result
     )
     firebase_service.save_message(message_data)
 
+    # 5. Send WhatsApp Reply
+    # Logic: message["fact_check"]["counter_message"]
+    # We prefer the regional one for the actual reply if it exists
+    reply_counter = counter_message_reg or "I couldn't verify this claim yet."
+    
+    if fact_check_data.get("cached"):
+        header = "🔍 *Found a Similar Cached Claim*"
+    else:
+        header = "✅ *Fact-Checked Result*"
+
+    reply_text = (
+        f"{header}\n\n"
+        f"*Verdict:* {verdict_reg}\n\n"
+        f"*Counter Message:* {reply_counter}\n\n"
+        f"_Explanation:_ {explanation_reg}"
+    )
+    
     await send_message(sender_id, reply_text)
 
 

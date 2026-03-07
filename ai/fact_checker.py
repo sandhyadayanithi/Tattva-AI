@@ -2,7 +2,7 @@ from tavily import TavilyClient
 import os
 import json
 from dotenv import load_dotenv
-from google import genai
+import google.generativeai as genai
 from services.vector_service import vector_service
 from utils.logger import logger
 
@@ -21,8 +21,8 @@ class FactCheckerEngine:
                 logger.error("GEMINI_API_KEY not set")
                 self.use_llm = False
             else:
-                self.genai_client = genai.Client(api_key=api_key)
-                self.model_name = "gemini-2.5-flash"
+                genai.configure(api_key=api_key)
+                self.model = genai.GenerativeModel("gemini-2.5-flash")
 
     def check_claim(self, claim, language="English"):
         """Main entry point. Checks semantic cache before running full pipeline."""
@@ -123,10 +123,7 @@ class FactCheckerEngine:
 
         for attempt in range(max_retries):
             try:
-                response = self.genai_client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt
-                )
+                response = self.model.generate_content(prompt)
                 content = response.text
                 break # Success, exit retry loop
             except Exception as e:
