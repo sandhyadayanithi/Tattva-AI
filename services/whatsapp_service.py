@@ -78,7 +78,7 @@ async def mark_as_read(message_id: str):
     return result
 
 async def download_media(media_id: str) -> str:
-    """Downloads media from WhatsApp given a media_id and returns the local file path."""
+    """Downloads media from WhatsApp given a media_id and returns the absolute local file path."""
     url = f"https://graph.facebook.com/v18.0/{media_id}"
     headers = {
         "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"
@@ -99,17 +99,17 @@ async def download_media(media_id: str) -> str:
             response = await client.get(media_url, headers=headers)
             response.raise_for_status()
             
-            # 3. Save it locally
-            os.makedirs("audio_files", exist_ok=True)
+            # 3. Save it locally using absolute path
             mime_type = media_data.get("mime_type", "")
             ext = ".ogg" if "audio" in mime_type else ".jpg" if "image" in mime_type else ".bin"
             
-            file_path = f"audio_files/{media_id}{ext}"
+            file_path = AUDIO_DIR / f"{media_id}{ext}"
+            
             with open(file_path, "wb") as f:
                 f.write(response.content)
             
-            logger.info(f"Successfully downloaded media to {file_path}")
-            return file_path
+            logger.info(f"Successfully downloaded media to: {file_path.absolute()}")
+            return str(file_path.absolute())
         except Exception as e:
             logger.error(f"Failed to download binary from {media_url}: {str(e)}")
             return None

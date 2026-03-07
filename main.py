@@ -142,7 +142,7 @@ async def background_process_audio_and_reply(sender_id: str, audio_path: str):
     """Background task to run the AI pipeline for audio and send the result back via WhatsApp."""
     try:
         # 1. Run Pipeline (Whisper + Claim Extractor)
-        pipeline_result = process_audio(audio_path)
+        pipeline_result = await process_audio(audio_path)
         extracted_claim = pipeline_result.get("claim")
         transcription = pipeline_result.get("text")
         
@@ -151,7 +151,7 @@ async def background_process_audio_and_reply(sender_id: str, audio_path: str):
             return
 
         # 2. Fact-Check the claim (Checks Vector Cache internally)
-        engine = FactCheckerEngine(use_llm=USE_LLM)
+        engine = FactCheckerEngine(use_llm=settings.USE_LLM)
         fact_check_result = engine.check_claim(extracted_claim)
         
         verdict = fact_check_result.get("verdict", "Unknown")
@@ -300,10 +300,11 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
     await send_message(sender_id, reply_text)
 
 
-def process_audio(audio_path):
+async def process_audio(audio_path):
     print(f"Processing audio file: {audio_path}")
-    print("1. Running Whisper for transcription and language detection...")
-    whisper_result = transcribe_audio(audio_path)
+    print("1. Running Whisper for transcription")
+    # 1. Transcribe audio (Run in thread to avoid blocking the event loop)
+    whisper_result = await asyncio.to_thread(transcribe_audio, audio_path)
     
     text = whisper_result["text"]
     language = whisper_result["language"]
@@ -312,7 +313,7 @@ def process_audio(audio_path):
     print(f"Input transcription:\n{text}")
     
     claim = text  # Default to raw text
-    if USE_LLM:
+    if settings.USE_LLM:
         print("\n2. Extracting claims with LLM...")
         extractor = ClaimExtractor()
         extracted = extractor.extract_claim(text)
@@ -325,7 +326,7 @@ def process_audio(audio_path):
         print("\n2. [SKIPPED] Claim Extraction disabled. Using raw transcription as claim.")
 
     print("\n3. Running Fact Checker Engine...")
-    fact_checker = FactCheckerEngine(use_llm=USE_LLM)
+    fact_checker = FactCheckerEngine(use_llm=settings.USE_LLM)
     # This searches Tavily and optionally runs Gemini for the verdict.
     result = fact_checker.check_claim(claim)
     
