@@ -20,12 +20,12 @@ class MessageRecord(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
-                "user_number": "1234567890",
-                "audio_file": "audio/msg_001.mp3",
-                "transcription": "Drinking lemon water cures everything.",
-                "claim": "Lemon water cures all diseases.",
-                "verdict": "False",
-                "explanation": "Lemon water is healthy but doesn't cure all diseases.",
-                "confidence": 0.95
+                "audio_file": "audio_123.ogg",
+                "transcription": "Drinking hot water cures dengue",
+                "claim": "Hot water cures dengue",
+                "verdict": "True",
+                "explanation": "The evidence provided strongly and consistently supports the claim...",
+                "confidence": 0.91,
+                "timestamp": "2026-03-07T13:10:22"
             }
         }

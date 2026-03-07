@@ -1,3 +1,4 @@
+from datetime import datetime
 from google.cloud import firestore
 from config.firebase_config import db
 from models.message_model import MessageRecord
@@ -17,8 +18,14 @@ class FirebaseService:
         try:
             # Convert MessageRecord to dictionary
             message_data = message.dict()
-            # If id is provided, use it as the document ID, else let Firestore generate one
-            doc_ref = self.collection.document(message_data.get("id")) if message_data.get("id") else self.collection.document()
+            
+            # Generate a cleaner document ID using timestamp if not provided
+            doc_id = message_data.get("id")
+            if not doc_id:
+                ts = int(message_data.get("timestamp", datetime.now()).timestamp())
+                doc_id = f"message_id_{ts}"
+            
+            doc_ref = self.collection.document(doc_id)
             
             # Fill document ID back into dict if it's new
             message_data["id"] = doc_ref.id

@@ -19,9 +19,7 @@ from services.vector_service import vector_service
 from models.message_model import MessageRecord
 from services.ocr_service import OCRService
 
-# --- CONFIGURATION ---
-# Set this to False if you only want to test Whisper and save Gemini API calls
-USE_LLM = True
+# --- CONFIGURATION (Managed in core.config) ---
 # ---------------------
 
 # Setup logging
@@ -343,6 +341,7 @@ def process_audio(audio_path):
     }
 
 if __name__ == "__main__":
+    import sys
     if len(sys.argv) < 2:
         print("Usage: python main.py <path_to_audio_file>")
         sys.exit(1)

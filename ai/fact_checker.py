@@ -97,18 +97,19 @@ class FactCheckerEngine:
         Determine the validity of the claim based on the evidence.
         Evaluate the claim for the following:
         1. Verdict: True, False, or Uncertain
-        2. Confidence Level: High, Medium, or Low
+        2. Confidence Score: A floating point number between 0.0 and 1.0 (e.g., 0.91).
         3. Virality Risk Score: 1-10 based on how emotionally charged and shareable the claim is.
-        4. Counter-message: A short, WhatsApp-friendly debunking message in the SAME language as the original claim.
+        4. Explanation: A detailed, consistent synthesis of the evidence supporting the verdict.
+        5. Counter-message: A short, WhatsApp-friendly debunking message in the SAME language as the original claim.
 
         Return ONLY in this precise JSON format, without any markdown formatting wrappers:
 
         {{
           "verdict": "",
-          "confidence_level": "",
+          "confidence_score": 0.0,
           "virality_score": 0,
-          "counter_message": "",
-          "explanation": ""
+          "explanation": "",
+          "counter_message": ""
         }}
         """
         import time
@@ -149,10 +150,10 @@ class FactCheckerEngine:
         except json.JSONDecodeError:
             verdict_json = {
                 "verdict": "Uncertain",
-                "confidence_level": "Low",
+                "confidence_score": 0.0,
                 "virality_score": 5,
-                "counter_message": "We could not verify this claim due to a system error.",
-                "explanation": "Failed to parse JSON: " + content
+                "explanation": "Failed to parse JSON: " + content,
+                "counter_message": "We could not verify this claim due to a system error."
             }
         return verdict_json
 
