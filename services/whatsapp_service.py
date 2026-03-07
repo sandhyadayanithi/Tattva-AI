@@ -11,7 +11,7 @@ async def send_message(to: str, text: str):
     """Sends a text message to a WhatsApp number."""
     url = f"{WHATSAPP_API_URL}/messages"
     headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_TOKEN}",
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
     payload = {
@@ -35,7 +35,7 @@ async def mark_as_read(message_id: str):
     """Marks an incoming message as read."""
     url = f"{WHATSAPP_API_URL}/messages"
     headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_TOKEN}",
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
     payload = {
@@ -58,34 +58,40 @@ async def download_media(media_id: str) -> str:
     """Downloads media from WhatsApp given a media_id and returns the local file path."""
     url = f"https://graph.facebook.com/v18.0/{media_id}"
     headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_TOKEN}"
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"
     }
 
     async with httpx.AsyncClient() as client:
         try:
-            # 1. Get the media URL
+            # 1. Get the media URL from WhatsApp API
             response = await client.get(url, headers=headers)
             response.raise_for_status()
             media_data = response.json()
             media_url = media_data.get("url")
             
             if not media_url:
-                logger.error("No media URL found in response")
+                logger.error(f"No media URL found in response for media_id {media_id}")
                 return None
-                
+            
             # 2. Download the actual media file
+            # Meta recommends not sending the Authorization header when requesting the media_url, 
+            # but usually it's required for the initial URL fetch.
             media_response = await client.get(media_url, headers=headers)
             media_response.raise_for_status()
             
             # 3. Save it locally
-            os.makedirs("temp", exist_ok=True)
-            file_path = f"temp/{media_id}.ogg"
+            os.makedirs("audio_files", exist_ok=True)
+            # WhatsApp voice notes are usually .ogg (Opus)
+            file_path = f"audio_files/{media_id}.ogg"
             with open(file_path, "wb") as f:
                 f.write(media_response.content)
             
-            logger.info(f"Successfully downloaded media to {file_path}")
+            logger.info(f"Successfully downloaded audio to {file_path}")
             return file_path
             
         except httpx.HTTPStatusError as e:
             logger.error(f"Failed to download media: {e.response.text}")
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error during media download: {str(e)}")
             return None

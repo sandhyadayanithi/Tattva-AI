@@ -2,7 +2,7 @@ from tavily import TavilyClient
 import os
 import json
 from dotenv import load_dotenv
-from google import genai
+import google.generativeai as genai
 from services.vector_service import vector_service
 from utils.logger import logger
 
