@@ -1,68 +1,47 @@
 from tavily import TavilyClient
 import os
 import json
-import sqlite3
 from dotenv import load_dotenv
 from google import genai
+from services.vector_service import vector_service
+from utils.logger import logger
 
 # Load environment variables
 load_dotenv()
 os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
 
 class FactCheckerEngine:
-    def __init__(self, db_path="claims_cache.db"):
+    def __init__(self):
         self.tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
         self.genai_client = genai.Client()
-        self.db_path = db_path
-        self._init_db()
-
-    def _init_db(self):
-        """Initialize SQLite database for claim caching."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS claim_cache (
-                    claim TEXT PRIMARY KEY,
-                    verdict TEXT,
-                    confidence_level TEXT,
-                    virality_score INTEGER,
-                    counter_message TEXT,
-                    explanation TEXT
-                )
-            ''')
 
     def check_claim(self, claim):
-        """Main entry point. Checks cache before running full pipeline."""
-        # Check cache first
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute(
-                "SELECT verdict, confidence_level, virality_score, counter_message, explanation FROM claim_cache WHERE claim = ?", 
-                (claim,)
-            )
-            row = cursor.fetchone()
-            if row:
-                return {
-                    "verdict": row[0],
-                    "confidence_level": row[1],
-                    "virality_score": row[2],
-                    "counter_message": row[3],
-                    "explanation": row[4],
-                    "cached": True
-                }
+        """Main entry point. Checks semantic cache before running full pipeline."""
+        # 1. Check Vector Cache first
+        cached_result = vector_service.search_similar_claim(claim)
+        if cached_result:
+            logger.info(f"Semantic cache hit for claim: {claim}")
+            return {
+                **cached_result,
+                "cached": True
+            }
 
-        # If not in cache, run full pipeline
+        # 2. If not in cache, run full pipeline
+        logger.info(f"Cache miss. Running full fact-check pipeline for: {claim}")
         evidence = self.search_evidence(claim)
         result = self.generate_verdict(claim, evidence)
         
-        # Save to cache
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO claim_cache (claim, verdict, confidence_level, virality_score, counter_message, explanation) VALUES (?, ?, ?, ?, ?, ?)",
-                (claim, result.get("verdict"), result.get("confidence_level"), result.get("virality_score"), result.get("counter_message"), result.get("explanation"))
-            )
+        # 3. Save to Vector Cache
+        vector_service.store_claim_embedding(
+            claim=claim, 
+            verdict=result.get("verdict"), 
+            explanation=result.get("explanation")
+        )
             
         result["cached"] = False
         result["evidence_used"] = evidence
         return result
+
 
     def search_evidence(self, claim):
         """Retrieves evidence using Tavily."""
