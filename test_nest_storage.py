@@ -16,23 +16,16 @@ async def test_nested_storage():
         "some_raw_data": "extra info"
     }
 
-    print("Creating MessageRecord with nested schema...")
-    fact_check_data = {
-        "verdict": fact_result.get("verdict_en"),
-        "explanation": fact_result.get("explanation_en"),
-        "counter_message": fact_result.get("counter_message_en"),
-        "confidence": fact_result.get("confidence_score"),
-        "virality_score": fact_result.get("virality_score"),
-        "cached": fact_result.get("cached")
-    }
-
     message = MessageRecord(
-        user_number="test_user_123",
+        transcript="Test transcription",
         claim="Test claim",
-        transcription="Test transcription",
-        fact_check=fact_check_data,
-        ai_response=fact_result,
-        timestamp=datetime.now()
+        verdict="FALSE",
+        explanation="This is a test explanation.",
+        virality_score=4,
+        virality_reason="Test reason.",
+        counter_message="This is a test counter message.",
+        language="English",
+        category="health"
     )
 
     print("Saving to Firestore...")
@@ -56,17 +49,17 @@ async def test_nested_storage():
     import json
     print(json.dumps(saved, indent=2))
     
-    # Validation
-    root_redundant = ["verdict", "explanation", "counter_message", "confidence", "virality_score"]
+    # Validation of Standardized Schema
+    required_fields = ["transcript", "claim", "verdict", "explanation", "virality_score", "virality_reason", "language", "category", "created_at"]
     errors = []
-    for field in root_redundant:
-        if field in saved:
-            errors.append(f"Redundant root field found: {field}")
+    for field in required_fields:
+        if field not in saved:
+            errors.append(f"Required field missing: {field}")
             
-    if "fact_check" not in saved:
-        errors.append("fact_check object missing")
-    if "ai_response" not in saved:
-        errors.append("ai_response object missing")
+    if "fact_check" in saved:
+        errors.append("Old nested 'fact_check' found")
+    if "ai_response" in saved:
+        errors.append("Old nested 'ai_response' found")
         
     if errors:
         print("\nVERIFICATION FAILED:")

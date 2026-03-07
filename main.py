@@ -253,12 +253,13 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
 
     # 3. Extract data from result structure
     verdict = fact_check_result.get("verdict", "FALSE")
+    category = fact_check_result.get("category", "health")
     
-    # Use regional fields for the display content
-    explanation = fact_check_result.get("explanation_reg", fact_check_result.get("explanation_en", "No explanation provided."))
+    # Use regional fields for the display content (WhatsApp)
+    explanation_disp = fact_check_result.get("explanation_reg", fact_check_result.get("explanation_en", "No explanation provided."))
     virality_score = fact_check_result.get("virality_score", 0)
-    virality_reason = fact_check_result.get("virality_reason_reg", fact_check_result.get("virality_reason_en", "No reason provided."))
-    counter_message = fact_check_result.get("counter_message_reg", fact_check_result.get("counter_message_en"))
+    virality_reason_disp = fact_check_result.get("virality_reason_reg", fact_check_result.get("virality_reason_en", "No reason provided."))
+    counter_message_disp = fact_check_result.get("counter_message_reg", fact_check_result.get("counter_message_en"))
 
     # Internal logging
     if fact_check_result.get("cached"):
@@ -266,37 +267,29 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
     else:
         logger.info("Fact-check result generated via full pipeline.")
 
-    # 4. Format WhatsApp Message based on Verdict
-    # Follow "OUTPUT FORMAT" exactly
-    
+    # 4. Format WhatsApp Message based on Verdict (No category here)
     reply_text = f"📢 Fact Check Result\n\n"
     reply_text += f"Claim: {extracted_claim}\n\n"
     reply_text += f"Verdict: {verdict}\n\n"
-    reply_text += f"Explanation:\n{explanation}\n\n"
+    reply_text += f"Explanation:\n{explanation_disp}\n\n"
     reply_text += f"Virality Risk Score: {virality_score}/10\n\n"
-    reply_text += f"Reason:\n{virality_reason}"
+    reply_text += f"Reason:\n{virality_reason_disp}"
 
-    if verdict == "FALSE" and counter_message:
-        reply_text += f"\n\nSuggested Counter Message:\n{counter_message}"
+    if verdict == "FALSE" and counter_message_disp:
+        reply_text += f"\n\nSuggested Counter Message:\n{counter_message_disp}"
 
-    # 5. Store in Firestore (Prepare structured data for DB)
-    fact_check_db_data = {
-        "verdict": verdict,
-        "explanation": fact_check_result.get("explanation_en"),
-        "virality_score": virality_score,
-        "virality_reason": fact_check_result.get("virality_reason_en"),
-        "counter_message": fact_check_result.get("counter_message_en"),
-        "cached": fact_check_result.get("cached", False)
-    }
-
+    # 5. Store in Firestore (Standardized Schema)
+    # Mapping for storage (uses English fields for explanation/reasoning where possible or as per requirement)
     message_data = MessageRecord(
-        user_number=sender_id,
-        audio_file=file_path if media_type == "audio" else None,
-        image_file=file_path if media_type == "image" else None,
-        transcription=full_text,
+        transcript=full_text or extracted_claim,
         claim=extracted_claim,
-        fact_check=fact_check_db_data,
-        ai_response=fact_check_result
+        verdict=verdict,
+        explanation=fact_check_result.get("explanation_en", explanation_disp),
+        virality_score=virality_score,
+        virality_reason=fact_check_result.get("virality_reason_en", virality_reason_disp),
+        counter_message=fact_check_result.get("counter_message_en", counter_message_disp),
+        language=language,
+        category=category
     )
 
     firebase_service.save_message(message_data)

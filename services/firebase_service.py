@@ -6,11 +6,31 @@ from utils.logger import logger
 
 
 class FirebaseService:
-    def __init__(self, collection_name="messages"):
+    def __init__(self, collection_name="fact_checks"):
         self.collection = db.collection(collection_name) if db else None
 
+    def validate_document(self, data: dict):
+        """Validates the document against the standardized schema rules."""
+        errors = []
+        if not data.get("transcript"):
+            errors.append("Missing transcript")
+        if not data.get("claim"):
+            errors.append("Missing claim")
+        
+        verdict = data.get("verdict")
+        if verdict not in ["TRUE", "FALSE"]:
+            errors.append(f"Invalid verdict: {verdict}. Must be TRUE or FALSE.")
+        
+        virality_score = data.get("virality_score")
+        if not isinstance(virality_score, int) or not (1 <= virality_score <= 10):
+            errors.append(f"Invalid virality_score: {virality_score}. Must be between 1 and 10.")
+        
+        if errors:
+            return False, errors
+        return True, []
+
     def save_message(self, message: MessageRecord):
-        """Stores processed message records in a 'messages' collection."""
+        """Stores standardized fact-check records in the 'fact_checks' collection."""
         if not self.collection:
             logger.error("Firebase not initialized. Cannot save message.")
             return None
@@ -19,53 +39,35 @@ class FirebaseService:
             # Convert MessageRecord to dictionary
             message_data = message.dict()
             
-            # Generate a cleaner document ID using timestamp if not provided
-            doc_id = message_data.get("id")
-            if not doc_id:
-                ts = int(message_data.get("timestamp", datetime.now()).timestamp())
-                doc_id = f"message_id_{ts}"
+            # Use current Firestore timestamp for created_at
+            message_data["created_at"] = firestore.SERVER_TIMESTAMP
             
-            doc_ref = self.collection.document(doc_id)
-            
-            # Fill document ID back into dict if it's new
-            message_data["id"] = doc_ref.id
-            
-            # Save to Firestore
+            # Validate before writing
+            is_valid, errors = self.validate_document(message_data)
+            if not is_valid:
+                logger.error(f"Validation failed for Firestore document: {', '.join(errors)}")
+                return None
+
+            doc_ref = self.collection.document()
             doc_ref.set(message_data)
-            logger.info(f"Message saved successfully to Firestore with ID: {doc_ref.id}")
+            logger.info(f"Fact-check saved successfully to Firestore with ID: {doc_ref.id}")
             return doc_ref.id
         except Exception as e:
-            logger.error(f"Error saving message to Firestore: {str(e)}")
+            logger.error(f"Error saving fact-check to Firestore: {str(e)}")
             return None
 
     def get_recent_messages(self, limit=20):
-        """Retrieves recent processed message records from the messages collection."""
+        """Retrieves recent standardized fact-check records."""
         if not self.collection:
             logger.error("Firebase not initialized.")
             return []
         
         try:
-            # Firestore query for recent messages ordered by timestamp descending
-            docs = self.collection.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(limit).stream()
+            docs = self.collection.order_by("created_at", direction=firestore.Query.DESCENDING).limit(limit).stream()
             messages = [doc.to_dict() for doc in docs]
             return messages
         except Exception as e:
-            logger.error(f"Error retrieving recent messages from Firestore: {str(e)}")
-            return []
-
-    def get_messages_by_user(self, user_number):
-        """Retrieves processed message records for a specific user number."""
-        if not self.collection:
-            logger.error("Firebase not initialized.")
-            return []
-        
-        try:
-            # Firestore query filtering by user_number
-            docs = self.collection.where("user_number", "==", user_number).stream()
-            messages = [doc.to_dict() for doc in docs]
-            return messages
-        except Exception as e:
-            logger.error(f"Error retrieving messages for user {user_number} from Firestore: {str(e)}")
+            logger.error(f"Error retrieving recent fact-checks from Firestore: {str(e)}")
             return []
 
 # Example helper function if needed for simple functional calls

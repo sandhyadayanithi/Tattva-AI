@@ -85,23 +85,19 @@ def process_audio(audio_path, user_number="TERMINAL_USER"):
     
     # 4. STORE IN FIREBASE (Unifies terminal and webhook paths!)
     try:
-        # 3. Prepare Nest Data
-        fact_check_data = {
-            "verdict": fact_check_result.get("verdict_en", "Unknown"),
-            "explanation": fact_check_result.get("explanation_en", "No explanation provided."),
-            "counter_message": fact_check_result.get("counter_message_en"),
-            "confidence": fact_check_result.get("confidence_score", 0.0),
-            "virality_score": fact_check_result.get("virality_score", 0),
-            "cached": fact_check_result.get("cached", False)
-        }
-
+        verdict = fact_check_result.get("verdict", "FALSE")
+        category = fact_check_result.get("category", "health")
+        
         message_record = MessageRecord(
-            user_number=user_number,
-            audio_file=os.path.basename(audio_path),
-            transcription=text,
+            transcript=text,
             claim=claim,
-            fact_check=fact_check_data,
-            ai_response=fact_check_result
+            verdict=verdict,
+            explanation=fact_check_result.get("explanation_en", "No explanation provided."),
+            virality_score=fact_check_result.get("virality_score", 0),
+            virality_reason=fact_check_result.get("virality_reason_en", "No reason provided."),
+            counter_message=fact_check_result.get("counter_message_en"),
+            language=language,
+            category=category
         )
         firebase_service.save_message(message_record)
     except Exception as e:

@@ -101,12 +101,14 @@ class FactCheckerEngine:
         2. Provide a short plain-language explanation in both English and {language}.
         3. Assign a Virality Risk Score (1-10) based on linguistic cues: emotional language, urgency, conspiracy framing, authority claims, or encouragement to forward.
         4. Provide a short reason explaining the virality score in both English and {language}.
-        5. Generate a "Suggested Counter Message" ONLY if the verdict is FALSE. This message must be short, clear, WhatsApp-friendly, and written in the same language as the original claim/detected language.
+        5. Classify the claim into ONE of these categories: health, election, religion, finance.
+        6. Generate a "Suggested Counter Message" ONLY if the verdict is FALSE. This message must be short, clear, WhatsApp-friendly, and written in the same language as the original claim/detected language.
 
         Return ONLY in this precise JSON format, without any markdown formatting wrappers:
 
         {{
           "verdict": "TRUE or FALSE",
+          "category": "health or election or religion or finance",
           "explanation_en": "short explanation in English",
           "explanation_reg": "short explanation in {language}",
           "virality_score": 0,
@@ -134,6 +136,7 @@ class FactCheckerEngine:
                     logger.error(f"Error calling Gemini for verdict: {e}")
                     return {
                         "verdict": "FALSE", # Default to false for safety if error
+                        "category": "health", # Default
                         "explanation_en": f"API Error: {e}",
                         "explanation_reg": f"API பிழை: {e}",
                         "virality_score": 5,
@@ -157,6 +160,7 @@ class FactCheckerEngine:
         except json.JSONDecodeError:
             verdict_json = {
                 "verdict": "FALSE",
+                "category": "health",
                 "explanation_en": "Failed to parse JSON response.",
                 "explanation_reg": "பதிலைச் செயல்படுத்த முடியவில்லை.",
                 "virality_score": 5,

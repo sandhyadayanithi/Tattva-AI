@@ -23,8 +23,8 @@ def test_virality_and_storage_data():
     print("\n--- LLM Response ---")
     print(json.dumps(result, indent=2))
     
-    # Verify fields
-    required_fields = ["verdict", "confidence_level", "virality_score", "explanation", "counter_message"]
+    # Verify fields from new prompt
+    required_fields = ["verdict", "category", "virality_score", "virality_reason_en", "explanation_en", "counter_message_en"]
     missing = [f for f in required_fields if f not in result]
     
     if not missing:
@@ -40,16 +40,15 @@ def test_virality_and_storage_data():
     # Test MessageRecord mapping
     print("\n--- Testing MessageRecord Mapping ---")
     record = MessageRecord(
-        user_number="12345",
-        image_file="https://storage.googleapis.com/tattva-ai.appspot.com/images/test.jpg",
+        transcript=claim,
         claim=claim,
         verdict=result["verdict"],
-        explanation=result["explanation"],
-        confidence=0.95 if result["confidence_level"] == "High" else 0.5,
-        confidence_level=result["confidence_level"],
+        explanation=result["explanation_en"],
         virality_score=result["virality_score"],
-        counter_message=result["counter_message"],
-        evidence_used=evidence
+        virality_reason=result["virality_reason_en"],
+        counter_message=result["counter_message_en"],
+        language="English",
+        category=result["category"]
     )
     
     print("✅ MessageRecord created successfully.")
