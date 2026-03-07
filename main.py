@@ -12,6 +12,11 @@ from services.whatsapp import download_media, send_message
 from whisper_service import transcribe_audio
 from claim_extractor import ClaimExtractor
 
+# --- CONFIGURATION ---
+# Set this to False if you only want to test Whisper and save Gemini API calls
+USE_LLM = True
+# ---------------------
+
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -112,15 +117,19 @@ def process_audio(audio_path):
     
     print(f"\nDetected Language: {language}")
     print(f"Input transcription:\n{text}")
-    print("\n2. Extracting claims with LLM...")
     
-    extractor = ClaimExtractor()
-    claim = extractor.extract_claim(text)
-    
-    if claim:
-        print(f"\nExtracted claim:\n{claim}")
+    claim = None
+    if USE_LLM:
+        print("\n2. Extracting claims with LLM...")
+        extractor = ClaimExtractor()
+        claim = extractor.extract_claim(text)
+        
+        if claim:
+            print(f"\nExtracted claim:\n{claim}")
+        else:
+            print("\nFailed to extract claim.")
     else:
-        print("\nFailed to extract claim.")
+        print("\n2. [SKIPPED] LLM Claim Extraction disabled by USE_LLM flag.")
         
     return {
         "text": text,
