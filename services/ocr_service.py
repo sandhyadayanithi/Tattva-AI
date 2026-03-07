@@ -4,7 +4,7 @@ import os
 import sys
 import re
 from dotenv import load_dotenv
-from google import genai
+import google.generativeai as genai
 
 class OCRService:
     def __init__(self, tesseract_path=None):
