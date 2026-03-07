@@ -113,7 +113,6 @@ async def mark_as_read(message_id: str):
 
     return result
 
-
 async def download_media(media_id: str) -> str:
     """
     Download WhatsApp media given a media_id.
@@ -124,7 +123,6 @@ async def download_media(media_id: str) -> str:
         "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"
     }
 
-    # Step 1: Get metadata to obtain download URL
     metadata_url = f"https://graph.facebook.com/v18.0/{media_id}"
 
     media_data = await _request_with_retry("GET", metadata_url, headers=headers)
@@ -134,21 +132,23 @@ async def download_media(media_id: str) -> str:
         return None
 
     media_url = media_data["url"]
+    mime_type = media_data.get("mime_type", "")
 
-    # Step 2: Download binary
+    # Determine extension
+    ext = ".bin"
+    if "audio/ogg" in mime_type or "audio/opus" in mime_type:
+        ext = ".ogg"
+    elif "image/jpeg" in mime_type:
+        ext = ".jpg"
+    elif "image/png" in mime_type:
+        ext = ".png"
+    elif "video/mp4" in mime_type:
+        ext = ".mp4"
+
     async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
         try:
             response = await client.get(media_url, headers=headers)
             response.raise_for_status()
-
-            mime_type = media_data.get("mime_type", "")
-
-            if "audio" in mime_type:
-                ext = ".ogg"
-            elif "image" in mime_type:
-                ext = ".jpg"
-            else:
-                ext = ".bin"
 
             file_path = AUDIO_DIR / f"{media_id}{ext}"
 

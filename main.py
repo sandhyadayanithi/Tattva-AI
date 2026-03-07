@@ -120,25 +120,31 @@ async def test_claim(claim: str, verdict: str, explanation: str):
 
 
 
+from services.storage_service import storage_service
+
 async def handle_voice_message_pipeline(sender_id: str, media_id: str):
-    """Downloads audio and triggers the full AI pipeline."""
+    """Downloads audio, uploads to Cloud Storage, and triggers the full AI pipeline."""
     try:
         await send_message(sender_id, "Voice note received! 🎤 analyzing...")
-        # 1. Download audio file
-        audio_path = await download_media(media_id)
-        if not audio_path:
+        # 1. Download audio file locally
+        local_path = await download_media(media_id, folder="audio_files")
+        if not local_path:
             logger.error(f"Could not download audio for media_id {media_id}")
             await send_message(sender_id, "I encountered an error while trying to download your voice note.")
             return
 
-        # 2. Trigger existing pipeline
-        await background_process_audio_and_reply(sender_id, audio_path)
+        # 2. Upload to Firebase Storage for permanent URL
+        cloud_url = storage_service.upload_file(local_path, folder="voice_notes")
+        logger.info(f"Audio uploaded to Cloud Storage: {cloud_url}")
+
+        # 3. Trigger processing with cloud URL
+        await background_process_audio_and_reply(sender_id, local_path, cloud_url)
 
     except Exception as e:
         logger.error(f"Error in voice pipeline: {str(e)}")
         await send_message(sender_id, "An unexpected error occurred while processing your request.")
 
-async def background_process_audio_and_reply(sender_id: str, audio_path: str):
+async def background_process_audio_and_reply(sender_id: str, local_path: str, cloud_url: str):
     """Background task to run the AI pipeline for audio and send the result back via WhatsApp."""
     try:
         # 1. Run Pipeline (Whisper + Claim Extractor)
@@ -170,24 +176,26 @@ async def background_process_image_and_reply(sender_id: str, media_id: str):
     try:
         await send_message(sender_id, "Image received! 📸 extracting text...")
         
-        # 1. Download media
-        image_path = await download_media(media_id)
-        if not image_path:
+        # 1. Download media locally
+        local_path = await download_media(media_id, folder="images")
+        if not local_path:
             await send_message(sender_id, "Sorry, I couldn't download the image.")
             return
 
-        # 2. Extract text from image
-        logger.info(f"Running OCR on image: {image_path}")
+        # 2. Upload to Firebase Storage for permanent URL
+        cloud_url = storage_service.upload_file(local_path, folder="images")
+        logger.info(f"Image uploaded to Cloud Storage: {cloud_url}")
+
+        # 3. Extract text from image
+        logger.info(f"Running OCR on image: {local_path}")
         ocr_service = OCRService()
-        extracted_text = ocr_service.extract_text(image_path)
+        extracted_text = ocr_service.extract_text(local_path)
         
         if not extracted_text:
             await send_message(sender_id, "I couldn't extract any text from the image.")
             return
             
-        # 2. Extract claim from the OCR text
-        import time
-        time.sleep(1) # Quota stabilization
+        # 4. Extract claim from the OCR text
         logger.info(f"Extracting claim from OCR text...")
         extractor = ClaimExtractor()
         extraction_result = extractor.extract_claim(extracted_text)
@@ -209,16 +217,24 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
             return
             
         # 1. Extract claim from the text
-        import time
-        time.sleep(1) # Quota stabilization
         logger.info(f"Extracting claim from text...")
         extractor = ClaimExtractor()
         extraction_result = extractor.extract_claim(text_content)
         extracted_claim = extraction_result.get("claim")
         detected_language = extraction_result.get("language", "English")
         
-        time.sleep(3) # Increased pause for Free Tier stability
-        await handle_claim_verification(sender_id, extracted_claim, text_content, None, media_type="text", language=detected_language)
+        # 2. Fact-Check the claim
+        engine = FactCheckerEngine(use_llm=settings.USE_LLM)
+        fact_check_result = engine.check_claim(extracted_claim)
+
+        await handle_claim_verification(
+            sender_id=sender_id,
+            extracted_claim=extracted_claim,
+            full_text=text_content,
+            file_path=None,
+            media_type="text",
+            fact_check_result=fact_check_result
+        )
         
     except Exception as e:
         logger.error(f"Error processing text in background: {e}")
@@ -230,11 +246,11 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
         await send_message(sender_id, f"I couldn't extract a clear claim from your {media_type}.")
         return
 
-    # 2. Fact-Check the claim
+    # 2. Fact-check the claim
     engine = FactCheckerEngine()
     fact_check_result = engine.check_claim(extracted_claim, language=language)
-    
-    # 3. Prepare Nest Data
+
+    # 3. Prepare structured fact-check data
     fact_check_data = {
         "verdict": fact_check_result.get("verdict_en", "Unknown"),
         "explanation": fact_check_result.get("explanation_en", "No explanation provided."),
@@ -243,43 +259,56 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
         "virality_score": fact_check_result.get("virality_score", 0),
         "cached": fact_check_result.get("cached", False)
     }
-    
-    # Regional overrides for the WhatsApp reply (if available)
+
+    # Regional overrides (if available)
     verdict_reg = fact_check_result.get("verdict_reg", fact_check_data["verdict"])
     explanation_reg = fact_check_result.get("explanation_reg", fact_check_data["explanation"])
     counter_message_reg = fact_check_result.get("counter_message_reg", fact_check_data["counter_message"])
-    
+
+    # Internal logging only (do NOT expose cache info to users)
+    if fact_check_data["cached"]:
+        logger.info("Fact-check result served from semantic cache.")
+    else:
+        logger.info("Fact-check result generated via full pipeline.")
+
+    # Always show the same header to users
+    header = "✅ *Fact-Check Complete*"
+
+    # WhatsApp reply message
+    reply_text = (
+        f"{header}\n\n"
+        f"✅ *Verdict:* {verdict_reg}\n\n"
+        f"📩 *Result:* {counter_message_reg}\n\n"
+        f"📝 *Explanation:* {explanation_reg}"
+    )
+
     # 4. Store in Firestore
     message_data = MessageRecord(
         user_number=sender_id,
         audio_file=file_path if media_type == "audio" else None,
         image_file=file_path if media_type == "image" else None,
-        transcription=full_text, 
+        transcription=full_text,
         claim=extracted_claim,
         fact_check=fact_check_data,
         ai_response=fact_check_result
     )
+
     firebase_service.save_message(message_data)
 
     # 5. Send WhatsApp Reply
-    # Logic: message["fact_check"]["counter_message"]
-    # We prefer the regional one for the actual reply if it exists
     reply_counter = counter_message_reg or "I couldn't verify this claim yet."
-    
-    if fact_check_data.get("cached"):
-        header = "🔍 *Found a Similar Cached Claim*"
-    else:
-        header = "✅ *Fact-Checked Result*"
+
+    # Always show the same header to users
+    header = "✅ *Fact-Check Complete*"
 
     reply_text = (
         f"{header}\n\n"
-        f"*Verdict:* {verdict_reg}\n\n"
-        f"*Counter Message:* {reply_counter}\n\n"
-        f"_Explanation:_ {explanation_reg}"
+        f"✅ *Verdict:* {verdict_reg}\n\n"
+        f"📩 *Counter Message:* {reply_counter}\n\n"
+        f"📝 *Explanation:* {explanation_reg}"
     )
-    
-    await send_message(sender_id, reply_text)
 
+    await send_message(sender_id, reply_text)
 
 async def process_audio(audio_path):
     print(f"Processing audio file: {audio_path}")
