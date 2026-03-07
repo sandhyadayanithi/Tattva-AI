@@ -16,6 +16,7 @@ from ai.fact_checker import FactCheckerEngine
 from services.firebase_service import firebase_service
 from services.vector_service import vector_service
 from models.message_model import MessageRecord
+from services.ocr_service import OCRService
 
 # --- CONFIGURATION ---
 # Set this to False if you only want to test Whisper and save Gemini API calls
@@ -69,24 +70,33 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
                             if message.get("type") == "audio":
                                 audio = message.get("audio", {})
                                 media_id = audio.get("id")
-                                
                                 logger.info(f"Received audio message from {sender_id}. Media ID: {media_id}")
-                                
-                                # Send acknowledgment
                                 await send_message(sender_id, "Audio received. Processing...")
-                                
-                                # Download media
                                 file_path = await download_media(media_id)
-                                
                                 if file_path:
                                     logger.info(f"Audio downloaded to: {file_path}")
-                                    # Process audio in the background to avoid Meta webhook timeout (which is ~15s)
                                     background_tasks.add_task(background_process_audio_and_reply, sender_id, file_path)
                                 else:
                                     await send_message(sender_id, "Sorry, I couldn't download the audio.")
+                            elif message.get("type") == "image":
+                                image = message.get("image", {})
+                                media_id = image.get("id")
+                                logger.info(f"Received image message from {sender_id}. Media ID: {media_id}")
+                                await send_message(sender_id, "Image received. Extracting text and checking...")
+                                file_path = await download_media(media_id)
+                                if file_path:
+                                    logger.info(f"Image downloaded to: {file_path}")
+                                    background_tasks.add_task(background_process_image_and_reply, sender_id, file_path)
+                                else:
+                                    await send_message(sender_id, "Sorry, I couldn't download the image.")
+                            elif message.get("type") == "text":
+                                text_body = message.get("text", {}).get("body", "")
+                                logger.info(f"Received text message from {sender_id}: {text_body[:50]}...")
+                                # No need to download anything for text
+                                background_tasks.add_task(background_process_text_and_reply, sender_id, text_body)
                             else:
-                                logger.info(f"Received non-audio message from {sender_id}")
-                                await send_message(sender_id, "Please send a voice note to check a claim.")
+                                logger.info(f"Received unsupported message type ({message.get('type')}) from {sender_id}")
+                                await send_message(sender_id, "Please send a voice note, an image, or a text claim to check a fact.")
                                 
         return Response(content="EVENT_RECEIVED", status_code=200)
 
@@ -114,53 +124,117 @@ async def test_claim(claim: str, verdict: str, explanation: str):
 
 
 async def background_process_audio_and_reply(sender_id: str, audio_path: str):
-    """Background task to run the AI pipeline and send the result back via WhatsApp."""
+    """Background task to run the AI pipeline for audio and send the result back via WhatsApp."""
     try:
         # 1. Run Pipeline (Whisper + Claim Extractor)
         pipeline_result = process_audio(audio_path)
         extracted_claim = pipeline_result.get("claim")
         transcription = pipeline_result.get("text")
         
-        if not extracted_claim:
-            await send_message(sender_id, "I couldn't extract a clear claim from your audio.")
-            return
-
-        # 2. Fact-Check the claim (Checks Vector Cache internally)
-        engine = FactCheckerEngine()
-        fact_check_result = engine.check_claim(extracted_claim)
-        
-        verdict = fact_check_result.get("verdict", "Unknown")
-        explanation = fact_check_result.get("explanation", "No explanation provided.")
-        confidence = fact_check_result.get("confidence_level", "Low")
-        
-        if fact_check_result.get("cached"):
-            logger.info("Found similar claim in cache.")
-            reply_text = f"🔍 *Found a Similar Cached Claim*\n\nClaim: {fact_check_result.get('claim', extracted_claim)}\n\n*Verdict:* {verdict}\n\n_Explanation:_ {explanation}"
-        else:
-            reply_text = f"✅ *Fact-Checked Result*\n\nClaim: {extracted_claim}\n\n*Verdict:* {verdict}\n\n_Explanation:_ {explanation}"
-        
-        # 3. Store in Firestore (FirebaseService)
-        message_data = MessageRecord(
-            user_number=sender_id,
-            audio_file=audio_path,
-            transcription=transcription,
-            claim=extracted_claim,
-            verdict=verdict,
-            explanation=explanation,
-            confidence=0.9 if confidence == "High" else 0.5, # Mapping scale
-            raw_fact_check_response=fact_check_result
-        )
-        firebase_service.save_message(message_data)
-
-        
-        # 4. If new claim and was fact-checked (not needed now for placeholder), 
-        # normally we'd do: vector_service.store_claim_embedding(extracted_claim, verdict, explanation)
-
-        await send_message(sender_id, reply_text)
+        import time
+        time.sleep(1) # Quota stabilization
+        await handle_claim_verification(sender_id, extracted_claim, transcription, audio_path, media_type="audio")
         
     except Exception as e:
         logger.error(f"Error processing audio in background: {e}")
         await send_message(sender_id, "An error occurred while analyzing the audio.")
+
+async def background_process_image_and_reply(sender_id: str, image_path: str):
+    """Background task to run the AI pipeline for images and send the result back via WhatsApp."""
+    try:
+        # 1. Extract text from image
+        logger.info(f"Running OCR on image: {image_path}")
+        ocr_service = OCRService()
+        extracted_text = ocr_service.extract_text(image_path)
+        
+        if not extracted_text:
+            await send_message(sender_id, "I couldn't extract any text from the image.")
+            return
+            
+        # 2. Extract claim from the OCR text
+        import time
+        time.sleep(1) # Quota stabilization
+        logger.info(f"Extracting claim from OCR text...")
+        extractor = ClaimExtractor()
+        extracted_claim = extractor.extract_claim(extracted_text)
+        
+        time.sleep(1) # Quota stabilization
+        await handle_claim_verification(sender_id, extracted_claim, extracted_text, image_path, media_type="image")
+        
+    except Exception as e:
+        logger.error(f"Error processing image in background: {e}")
+        await send_message(sender_id, "An error occurred while analyzing the image.")
+
+async def background_process_text_and_reply(sender_id: str, text_content: str):
+    """Background task to run the AI pipeline for plain text claims."""
+    try:
+        if not text_content:
+            await send_message(sender_id, "Your message was empty. Please provide a claim to check.")
+            return
+            
+        # 1. Extract claim from the text
+        import time
+        time.sleep(1) # Quota stabilization
+        logger.info(f"Extracting claim from text...")
+        extractor = ClaimExtractor()
+        extracted_claim = extractor.extract_claim(text_content)
+        
+        time.sleep(1) # Quota stabilization
+        await handle_claim_verification(sender_id, extracted_claim, text_content, None, media_type="text")
+        
+    except Exception as e:
+        logger.error(f"Error processing text in background: {e}")
+        await send_message(sender_id, "An error occurred while analyzing your text claim.")
+
+async def handle_claim_verification(sender_id, extracted_claim, full_text, file_path, media_type):
+    """Shared logic for fact-checking and reply sending."""
+    if not extracted_claim:
+        await send_message(sender_id, f"I couldn't extract a clear claim from your {media_type}.")
+        return
+
+    # 2. Fact-Check the claim
+    engine = FactCheckerEngine()
+    fact_check_result = engine.check_claim(extracted_claim)
+    
+    verdict = fact_check_result.get("verdict", "Unknown")
+    explanation = fact_check_result.get("explanation", "No explanation provided.")
+    confidence = fact_check_result.get("confidence_level", "Low")
+    virality_score = fact_check_result.get("virality_score", 0)
+    counter_message = fact_check_result.get("counter_message", "")
+    
+    if fact_check_result.get("cached"):
+        logger.info("Found similar claim in cache.")
+        header = "🔍 *Found a Similar Cached Claim*"
+    else:
+        header = "✅ *Fact-Checked Result*"
+
+    reply_text = (
+        f"{header}\n\n"
+        f"*Claim:* {extracted_claim}\n"
+        f"*Verdict:* {verdict}\n"
+        f"*Confidence:* {confidence}\n"
+        f"*Virality Risk:* {virality_score}/10\n\n"
+        f"*Counter Message:* {counter_message}\n\n"
+        f"_Explanation:_ {explanation}"
+    )
+    
+    # 3. Store in Firestore
+    message_data = MessageRecord(
+        user_number=sender_id,
+        audio_file=file_path if media_type == "audio" else None,
+        image_file=file_path if media_type == "image" else None,
+        transcription=full_text, # For text, this is just the raw text
+        claim=extracted_claim,
+        verdict=verdict,
+        explanation=explanation,
+        confidence=0.9 if confidence == "High" else 0.5,
+        virality_score=virality_score,
+        counter_message=counter_message,
+        raw_fact_check_response=fact_check_result
+    )
+    firebase_service.save_message(message_data)
+
+    await send_message(sender_id, reply_text)
 
 
 def process_audio(audio_path):

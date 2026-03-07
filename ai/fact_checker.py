@@ -47,14 +47,23 @@ class FactCheckerEngine:
 
     def search_evidence(self, claim):
         """Retrieves evidence using Tavily."""
-        response = self.tavily.search(
-            query=claim,
-            search_depth="advanced",
-            max_results=5
-        )
-        # Deduplicate and truncate snippets to 500 chars each
-        snippets = list({e["content"][:500] for e in response["results"]})
-        return snippets
+        api_key = os.getenv("TAVILY_API_KEY")
+        if not api_key or not api_key.startswith("tvly-"):
+             logger.error("Invalid Tavily API Key format. Expected starting with 'tvly-'.")
+             return ["Error: Invalid Tavily API Key. Please provide a valid key from tavily.com."]
+
+        try:
+            response = self.tavily.search(
+                query=claim,
+                search_depth="advanced",
+                max_results=5
+            )
+            # Deduplicate and truncate snippets to 500 chars each
+            snippets = list({e["content"][:500] for e in response["results"]})
+            return snippets
+        except Exception as e:
+            logger.error(f"Tavily Search Error: {e}")
+            return [f"Error searching for evidence: {e}"]
 
     def generate_verdict(self, claim, evidence):
         """Uses Gemini to evaluate claim against evidence (if enabled)."""
@@ -95,12 +104,33 @@ class FactCheckerEngine:
           "explanation": ""
         }}
         """
-        response = self.genai_client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        import time
+        max_retries = 3
+        retry_delay = 2 # Initial delay in seconds
 
-        content = response.text
+        for attempt in range(max_retries):
+            try:
+                response = self.genai_client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt
+                )
+                content = response.text
+                break # Success, exit retry loop
+            except Exception as e:
+                if "429" in str(e) and attempt < max_retries - 1:
+                    logger.warning(f"Quota exceeded (429). Retrying in {retry_delay}s... (Attempt {attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2 # Exponential backoff
+                else:
+                    logger.error(f"Error calling Gemini for verdict: {e}")
+                    return {
+                        "verdict": "Uncertain",
+                        "confidence_level": "Low",
+                        "virality_score": 5,
+                        "counter_message": "Service reached its capacity limit. Please try again in 1 minute.",
+                        "explanation": f"API Error: {e}"
+                    }
+
         clean_content = content.strip()
         if clean_content.startswith("```json"):
             clean_content = clean_content[7:]

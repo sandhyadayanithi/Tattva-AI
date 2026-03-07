@@ -1,9 +1,25 @@
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
 import os
+import sys
 from utils.logger import logger
 from datetime import datetime
+from sentence_transformers import SentenceTransformer
+
+# Highly defensive ChromaDB import for Python 3.14 stability
+CHROMA_AVAILABLE = False
+try:
+    # Suppress nasty pydantic/chromadb warnings on 3.14 during import
+    devnull = open(os.devnull, 'w')
+    old_stderr = sys.stderr
+    sys.stderr = devnull
+    try:
+        import chromadb
+        from chromadb.config import Settings
+        CHROMA_AVAILABLE = True
+    finally:
+        sys.stderr = old_stderr
+        devnull.close()
+except Exception:
+    CHROMA_AVAILABLE = False
 
 class VectorService:
     def __init__(self, collection_name="claims", persist_directory="./vector_db"):
@@ -16,19 +32,32 @@ class VectorService:
         if not os.path.exists("./vector_db"):
             os.makedirs("./vector_db")
         
-        # Persistent ChromaDB client
-        self.client = chromadb.PersistentClient(path=persist_directory)
-        
-        # Get or create the collection for claims
-        # We specify cosine similarity as requested by the task
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name, 
-            metadata={"hnsw:space": "cosine"}
-        )
-        logger.info(f"ChromaDB collection '{collection_name}' initialized in {persist_directory}.")
+        self.client = None
+        self.collection = None
+
+        if CHROMA_AVAILABLE:
+            try:
+                # Persistent ChromaDB client
+                self.client = chromadb.PersistentClient(path=persist_directory)
+                
+                # Get or create the collection for claims
+                # We specify cosine similarity as requested by the task
+                self.collection = self.client.get_or_create_collection(
+                    name=collection_name, 
+                    metadata={"hnsw:space": "cosine"}
+                )
+                logger.info(f"ChromaDB collection '{collection_name}' initialized in {persist_directory}.")
+            except Exception as e:
+                logger.error(f"FATAL: ChromaDB failed to initialize: {e}. Semantic caching will be disabled.")
+                self.client = None
+                self.collection = None
+        else:
+            logger.warning("ChromaDB is not available. Semantic caching is disabled.")
 
     def store_claim(self, claim_text: str, fact_check_result: dict):
         """Generates embedding for a claim and stores it with its full JSON result."""
+        if not self.collection:
+            return None
         try:
             # Generate claim vector embedding
             embedding = self.model.encode(claim_text).tolist()
@@ -59,6 +88,8 @@ class VectorService:
 
     def find_similar_claim(self, claim_text: str, threshold: float = 0.85):
         """Searches for semantically similar claims in the cache."""
+        if not self.collection:
+            return None
         try:
             # Generate query vector embedding
             query_embedding = self.model.encode(claim_text).tolist()
@@ -100,6 +131,8 @@ class VectorService:
 
     def list_all_claims(self):
         """Returns all stored documents and metadata so developers can verify stored data."""
+        if not self.collection:
+            return []
         try:
             results = self.collection.get(
                 include=["metadatas", "documents"]
