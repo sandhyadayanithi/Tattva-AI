@@ -12,10 +12,17 @@ os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
 
 class FactCheckerEngine:
     def __init__(self, use_llm=True):
+        from tavily import TavilyClient
         self.tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
         self.use_llm = use_llm
         if self.use_llm:
-            self.genai_client = genai.Client()
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                logger.error("GEMINI_API_KEY not set")
+                self.use_llm = False
+            else:
+                genai.configure(api_key=api_key)
+                self.model = genai.GenerativeModel("gemini-2.5-flash")
 
     def check_claim(self, claim):
         """Main entry point. Checks semantic cache before running full pipeline."""
@@ -90,18 +97,19 @@ class FactCheckerEngine:
         Determine the validity of the claim based on the evidence.
         Evaluate the claim for the following:
         1. Verdict: True, False, or Uncertain
-        2. Confidence Level: High, Medium, or Low
+        2. Confidence Score: A floating point number between 0.0 and 1.0 (e.g., 0.91).
         3. Virality Risk Score: 1-10 based on how emotionally charged and shareable the claim is.
-        4. Counter-message: A short, WhatsApp-friendly debunking message in the SAME language as the original claim.
+        4. Explanation: A detailed, consistent synthesis of the evidence supporting the verdict.
+        5. Counter-message: A short, WhatsApp-friendly debunking message in the SAME language as the original claim.
 
         Return ONLY in this precise JSON format, without any markdown formatting wrappers:
 
         {{
           "verdict": "",
-          "confidence_level": "",
+          "confidence_score": 0.0,
           "virality_score": 0,
-          "counter_message": "",
-          "explanation": ""
+          "explanation": "",
+          "counter_message": ""
         }}
         """
         import time
@@ -110,10 +118,7 @@ class FactCheckerEngine:
 
         for attempt in range(max_retries):
             try:
-                response = self.genai_client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=prompt
-                )
+                response = self.model.generate_content(prompt)
                 content = response.text
                 break # Success, exit retry loop
             except Exception as e:
@@ -145,10 +150,10 @@ class FactCheckerEngine:
         except json.JSONDecodeError:
             verdict_json = {
                 "verdict": "Uncertain",
-                "confidence_level": "Low",
+                "confidence_score": 0.0,
                 "virality_score": 5,
-                "counter_message": "We could not verify this claim due to a system error.",
-                "explanation": "Failed to parse JSON: " + content
+                "explanation": "Failed to parse JSON: " + content,
+                "counter_message": "We could not verify this claim due to a system error."
             }
         return verdict_json
 

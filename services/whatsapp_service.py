@@ -1,11 +1,41 @@
 import httpx
 import os
 import logging
+import asyncio
 from core.config import settings
 
 logger = logging.getLogger(__name__)
 
 WHATSAPP_API_URL = f"https://graph.facebook.com/v18.0/{settings.PHONE_NUMBER_ID}"
+DEFAULT_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+
+async def _request_with_retry(method: str, url: str, **kwargs):
+    """Internal helper to handle httpx requests with retries and logging."""
+    max_retries = 3
+    for attempt in range(max_retries):
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            try:
+                if method.upper() == "POST":
+                    response = await client.post(url, **kwargs)
+                else:
+                    response = await client.get(url, **kwargs)
+                
+                response.raise_for_status()
+                return response.json()
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                logger.warning(f"Timeout on attempt {attempt + 1}/{max_retries} for {url}: {str(e)}")
+            except httpx.HTTPStatusError as e:
+                logger.error(f"HTTP {e.response.status_code} for {url} on attempt {attempt + 1}: {e.response.text}")
+                # Don't retry on 4xx errors except maybe 429
+                if e.response.status_code < 500 and e.response.status_code != 429:
+                    break
+            except Exception as e:
+                logger.error(f"Unexpected error on attempt {attempt + 1} for {url}: {str(e)}")
+        
+        if attempt < max_retries - 1:
+            await asyncio.sleep(1 * (attempt + 1)) # Simple backoff
+            
+    return None
 
 async def send_message(to: str, text: str):
     """Sends a text message to a WhatsApp number."""
@@ -21,38 +51,31 @@ async def send_message(to: str, text: str):
         "text": {"body": text}
     }
     
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            logger.info(f"Message sent successfully to {to}")
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to send message: {e.response.text}")
-            return None
+    result = await _request_with_retry("POST", url, headers=headers, json=payload)
+    if result:
+        logger.info(f"Message sent successfully to {to}")
+    return result
 
 async def mark_as_read(message_id: str):
-    """Marks an incoming message as read."""
+    """Marks an incoming message as read using the official Meta format."""
     url = f"{WHATSAPP_API_URL}/messages"
     headers = {
         "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
+    # Official payload structure for status updates
     payload = {
         "messaging_product": "whatsapp",
         "status": "read",
         "message_id": message_id
     }
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            logger.info(f"Message {message_id} marked as read")
-            return response.json()
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to mark message as read: {e.response.text}")
-            return None
+    result = await _request_with_retry("POST", url, headers=headers, json=payload)
+    if result:
+        logger.info(f"Message {message_id} marked as read")
+    else:
+        logger.warning(f"Failed to mark message {message_id} as read after retries.")
+    return result
 
 async def download_media(media_id: str) -> str:
     """Downloads media from WhatsApp given a media_id and returns the local file path."""
@@ -61,37 +84,32 @@ async def download_media(media_id: str) -> str:
         "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"
     }
 
-    async with httpx.AsyncClient() as client:
+    # 1. Get the media URL
+    media_data = await _request_with_retry("GET", url, headers=headers)
+    if not media_data or not media_data.get("url"):
+        logger.error(f"Could not retrieve media metadata for {media_id}")
+        return None
+        
+    media_url = media_data.get("url")
+    
+    # 2. Download the actual media file
+    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
         try:
-            # 1. Get the media URL from WhatsApp API
-            response = await client.get(url, headers=headers)
+            # Note: For media downloads, we still use the token as Meta recommends
+            response = await client.get(media_url, headers=headers)
             response.raise_for_status()
-            media_data = response.json()
-            media_url = media_data.get("url")
-            
-            if not media_url:
-                logger.error(f"No media URL found in response for media_id {media_id}")
-                return None
-            
-            # 2. Download the actual media file
-            # Meta recommends not sending the Authorization header when requesting the media_url, 
-            # but usually it's required for the initial URL fetch.
-            media_response = await client.get(media_url, headers=headers)
-            media_response.raise_for_status()
             
             # 3. Save it locally
             os.makedirs("audio_files", exist_ok=True)
-            # WhatsApp voice notes are usually .ogg (Opus)
-            file_path = f"audio_files/{media_id}.ogg"
+            mime_type = media_data.get("mime_type", "")
+            ext = ".ogg" if "audio" in mime_type else ".jpg" if "image" in mime_type else ".bin"
+            
+            file_path = f"audio_files/{media_id}{ext}"
             with open(file_path, "wb") as f:
-                f.write(media_response.content)
+                f.write(response.content)
             
-            logger.info(f"Successfully downloaded audio to {file_path}")
+            logger.info(f"Successfully downloaded media to {file_path}")
             return file_path
-            
-        except httpx.HTTPStatusError as e:
-            logger.error(f"Failed to download media: {e.response.text}")
-            return None
         except Exception as e:
-            logger.error(f"Unexpected error during media download: {str(e)}")
+            logger.error(f"Failed to download binary from {media_url}: {str(e)}")
             return None

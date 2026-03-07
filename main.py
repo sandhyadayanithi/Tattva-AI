@@ -1,5 +1,6 @@
 import sys
 import os
+import asyncio
 from dotenv import load_dotenv
 
 # Load environment variables early
@@ -18,9 +19,7 @@ from services.vector_service import vector_service
 from models.message_model import MessageRecord
 from services.ocr_service import OCRService
 
-# --- CONFIGURATION ---
-# Set this to False if you only want to test Whisper and save Gemini API calls
-USE_LLM = True
+# --- CONFIGURATION (Managed in core.config) ---
 # ---------------------
 
 # Setup logging
@@ -50,13 +49,23 @@ async def verify_webhook(request: Request):
 @app.post("/webhook")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
     """
-    Incoming webhook for WhatsApp messages from Meta API.
+    Ultralight incoming webhook for WhatsApp messages. 
+    Returns 200 immediately to Meta, processes in background.
     """
     try:
         body = await request.json()
-        logger.info(f"Incoming WhatsApp webhook: {json.dumps(body)}")
-        
-        # Meta sends a list of changes
+        background_tasks.add_task(process_webhook_event, body)
+        return Response(content="EVENT_RECEIVED", status_code=200)
+    except Exception as e:
+        logger.error(f"Webhook ingestion error: {str(e)}")
+        # Always return 200 to avoid Meta retries if our parser fails
+        return Response(content="OK", status_code=200)
+
+async def process_webhook_event(body: dict):
+    """
+    Asynchronous background task to parse the Meta payload and trigger processing.
+    """
+    try:
         if body.get("object") == "whatsapp_business_account":
             for entry in body.get("entry", []):
                 for change in entry.get("changes", []):
@@ -66,45 +75,31 @@ async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
                             sender_id = message.get("from")
                             message_id = message.get("id")
                             
-                            # Mark message as read
-                            background_tasks.add_task(mark_as_read, message_id)
+                            # 1. Mark as read immediately (non-blocking)
+                            asyncio.create_task(mark_as_read(message_id))
                             
-                            if message.get("type") == "audio":
+                            # 2. Extract media/text and branch
+                            msg_type = message.get("type")
+                            
+                            if msg_type == "audio":
                                 audio = message.get("audio", {})
                                 media_id = audio.get("id")
-                                logger.info(f"Received audio message from {sender_id}. Media ID: {media_id}")
-                                await send_message(sender_id, "Audio received. Processing...")
-                                file_path = await download_media(media_id)
-                                if file_path:
-                                    logger.info(f"Audio downloaded to: {file_path}")
-                                    background_tasks.add_task(background_process_audio_and_reply, sender_id, file_path)
-                                else:
-                                    await send_message(sender_id, "Sorry, I couldn't download the audio.")
-                            elif message.get("type") == "image":
+                                logger.info(f"Processing audio from {sender_id}")
+                                asyncio.create_task(handle_voice_message_pipeline(sender_id, media_id))
+                            elif msg_type == "image":
                                 image = message.get("image", {})
                                 media_id = image.get("id")
-                                logger.info(f"Received image message from {sender_id}. Media ID: {media_id}")
-                                await send_message(sender_id, "Image received. Extracting text and checking...")
-                                file_path = await download_media(media_id)
-                                if file_path:
-                                    logger.info(f"Image downloaded to: {file_path}")
-                                    background_tasks.add_task(background_process_image_and_reply, sender_id, file_path)
-                                else:
-                                    await send_message(sender_id, "Sorry, I couldn't download the image.")
-                            elif message.get("type") == "text":
+                                logger.info(f"Processing image from {sender_id}")
+                                asyncio.create_task(background_process_image_and_reply(sender_id, media_id))
+                            elif msg_type == "text":
                                 text_body = message.get("text", {}).get("body", "")
-                                logger.info(f"Received text message from {sender_id}: {text_body[:50]}...")
-                                # No need to download anything for text
-                                background_tasks.add_task(background_process_text_and_reply, sender_id, text_body)
+                                logger.info(f"Processing text from {sender_id}")
+                                asyncio.create_task(background_process_text_and_reply(sender_id, text_body))
                             else:
-                                logger.info(f"Received unsupported message type ({message.get('type')}) from {sender_id}")
-                                await send_message(sender_id, "Please send a voice note, an image, or a text claim to check a fact.")
-                                
-        return Response(content="EVENT_RECEIVED", status_code=200)
-
+                                logger.info(f"Unsupported message type: {msg_type}")
+                                asyncio.create_task(send_message(sender_id, "Please send a voice note, image, or text claim to verify."))
     except Exception as e:
-        logger.error(f"Error handling webhook: {str(e)}")
-        return Response(content="ERROR", status_code=200) # Always return 200 to Meta to avoid retries on processing errors
+        logger.error(f"Error in background event processor: {str(e)}")
 
 @app.get("/messages/recent")
 async def get_recent():
@@ -128,6 +123,7 @@ async def test_claim(claim: str, verdict: str, explanation: str):
 async def handle_voice_message_pipeline(sender_id: str, media_id: str):
     """Downloads audio and triggers the full AI pipeline."""
     try:
+        await send_message(sender_id, "Voice note received! 🎤 analyzing...")
         # 1. Download audio file
         audio_path = await download_media(media_id)
         if not audio_path:
@@ -158,10 +154,18 @@ async def background_process_audio_and_reply(sender_id: str, audio_path: str):
         logger.error(f"Error processing audio in background: {e}")
         await send_message(sender_id, "An error occurred while analyzing the audio.")
 
-async def background_process_image_and_reply(sender_id: str, image_path: str):
+async def background_process_image_and_reply(sender_id: str, media_id: str):
     """Background task to run the AI pipeline for images and send the result back via WhatsApp."""
     try:
-        # 1. Extract text from image
+        await send_message(sender_id, "Image received! 📸 extracting text...")
+        
+        # 1. Download media
+        image_path = await download_media(media_id)
+        if not image_path:
+            await send_message(sender_id, "Sorry, I couldn't download the image.")
+            return
+
+        # 2. Extract text from image
         logger.info(f"Running OCR on image: {image_path}")
         ocr_service = OCRService()
         extracted_text = ocr_service.extract_text(image_path)
@@ -299,6 +303,7 @@ def process_audio(audio_path):
     }
 
 if __name__ == "__main__":
+    import sys
     if len(sys.argv) < 2:
         print("Usage: python main.py <path_to_audio_file>")
         sys.exit(1)
