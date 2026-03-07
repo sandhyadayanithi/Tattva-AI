@@ -9,11 +9,10 @@ from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks
 import logging
 from core.config import settings
 from services.whatsapp import download_media, send_message
-from whisper_service import transcribe_audio
-from claim_extractor import ClaimExtractor
-from fact_checker import FactCheckerEngine
+from ai.transcription import transcribe_audio
+from ai.claim_extractor import ClaimExtractor
+from ai.fact_checker import FactCheckerEngine
 from services.firebase_service import firebase_service
-
 from services.vector_service import vector_service
 from models.message_model import MessageRecord
 
@@ -107,7 +106,7 @@ async def get_by_user(number: str):
 @app.post("/test-claim-storage")
 async def test_claim(claim: str, verdict: str, explanation: str):
     """Debug route to test caching a claim embedding."""
-    result = vector_service.store_claim_embedding(claim, verdict, explanation)
+    result = vector_service.store_claim(claim, verdict, explanation)
     return {"id": result, "status": "stored"}
 
 

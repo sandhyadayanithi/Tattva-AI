@@ -3,35 +3,39 @@ from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 import os
 from utils.logger import logger
-
+from datetime import datetime
 
 class VectorService:
-    def __init__(self, collection_name="claims_cache", persist_directory="./db/chroma"):
+    def __init__(self, collection_name="claims_cache", persist_directory="./vector_db"):
         """Initializes ChromaDB client and sets up the claims collection."""
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight, efficient model
+        # Use a lightweight, efficient embedding model
+        # Using SentenceTransformer as an external embedding function for the collection
+        self.model = SentenceTransformer('all-MiniLM-L6-v2') 
         
         # Ensure persist directory exists
-        if not os.path.exists("./db"):
-            os.makedirs("./db")
+        if not os.path.exists("./vector_db"):
+            os.makedirs("./vector_db")
         
-        # In-memory or Persistent ChromaDB client
+        # Persistent ChromaDB client
         self.client = chromadb.PersistentClient(path=persist_directory)
         
         # Get or create the collection for claims
+        # We specify cosine similarity as requested by the task
         self.collection = self.client.get_or_create_collection(
             name=collection_name, 
-            metadata={"hnsw:space": "cosine"} # Use cosine similarity
+            metadata={"hnsw:space": "cosine"}
         )
-        logger.info(f"ChromaDB collection '{collection_name}' initialized.")
+        logger.info(f"ChromaDB collection '{collection_name}' initialized in {persist_directory}.")
 
-    def store_claim_embedding(self, claim: str, verdict: str, explanation: str):
+    def store_claim(self, claim_text: str, verdict: str, explanation: str):
         """Generates embedding for a claim and stores it with its verdict/explanation."""
         try:
             # Generate claim vector embedding
-            embedding = self.model.encode(claim).tolist()
+            embedding = self.model.encode(claim_text).tolist()
             
-            # Use hash of claim (or simple unique string) for ID
-            claim_id = str(hash(claim))
+            # Use deterministic ID based on claim text (to avoid duplicates)
+            import hashlib
+            claim_id = hashlib.md5(claim_text.encode()).hexdigest()
             
             # Store in ChromaDB collection
             self.collection.add(
@@ -39,21 +43,22 @@ class VectorService:
                 embeddings=[embedding],
                 metadatas=[{
                     "verdict": verdict,
-                    "explanation": explanation
+                    "explanation": explanation,
+                    "timestamp": datetime.now().isoformat()
                 }],
-                documents=[claim]
+                documents=[claim_text]
             )
-            logger.info(f"Claim stored in vector cache: {claim}")
+            logger.info(f"Claim stored in semantic cache: {claim_text[:50]}...")
             return claim_id
         except Exception as e:
-            logger.error(f"Error storing claim embedding: {str(e)}")
+            logger.error(f"Error storing claim in vector DB: {str(e)}")
             return None
 
-    def search_similar_claim(self, claim: str, threshold: float = 0.85):
+    def find_similar_claim(self, claim_text: str, threshold: float = 0.85):
         """Searches for semantically similar claims in the cache."""
         try:
-            # Generate claim vector embedding
-            query_embedding = self.model.encode(claim).tolist()
+            # Generate query vector embedding
+            query_embedding = self.model.encode(claim_text).tolist()
             
             # Query the collection
             results = self.collection.query(
@@ -67,20 +72,24 @@ class VectorService:
                 score = 1 - results["distances"][0][0]
                 
                 if score >= threshold:
-                    logger.info(f"Similar claim found in cache with confidence score {score:.2f}")
+                    logger.info(f"Semantic match found with confidence score {score:.2f}")
                     return {
                         "claim": results["documents"][0][0],
                         "verdict": results["metadatas"][0][0]["verdict"],
                         "explanation": results["metadatas"][0][0]["explanation"],
-                        "confidence": score
+                        "score": score
                     }
                 else:
-                    logger.info(f"No sufficiently similar claim found (highest score {score:.2f} < {threshold})")
+                    logger.info(f"No semantic match found (highest score {score:.2f} < {threshold})")
             
             return None
         except Exception as e:
-            logger.error(f"Error searching similar claim: {str(e)}")
+            logger.error(f"Error searching vector DB: {str(e)}")
             return None
 
-# Singleton-style VectorService instance
+# Singleton instance to be used across the app
 vector_service = VectorService()
+
+def initialize_vector_db():
+    """Explicit initializer if needed elsewhere."""
+    return vector_service

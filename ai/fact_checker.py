@@ -17,23 +17,25 @@ class FactCheckerEngine:
 
     def check_claim(self, claim):
         """Main entry point. Checks semantic cache before running full pipeline."""
-        # 1. Check Vector Cache first
-        cached_result = vector_service.search_similar_claim(claim)
-        if cached_result:
-            logger.info(f"Semantic cache hit for claim: {claim}")
+        # 1. Pipeline check: See if similar claim already exists in Vector DB
+        logger.info(f"Checking semantic cache for: {claim}")
+        similar_claim = vector_service.find_similar_claim(claim)
+        
+        if similar_claim:
+            logger.info(f"Pipeline hit: Similar claim found in semantic cache.")
             return {
-                **cached_result,
+                **similar_claim,
                 "cached": True
             }
 
-        # 2. If not in cache, run full pipeline
-        logger.info(f"Cache miss. Running full fact-check pipeline for: {claim}")
+        # 2. Else: Run full fact-check pipeline via external API
+        logger.info(f"Cache miss. Running full fact-check via external Search and LLM.")
         evidence = self.search_evidence(claim)
         result = self.generate_verdict(claim, evidence)
         
-        # 3. Save to Vector Cache
-        vector_service.store_claim_embedding(
-            claim=claim, 
+        # 3. Store result in Vector Cache for future hits
+        vector_service.store_claim(
+            claim_text=claim, 
             verdict=result.get("verdict"), 
             explanation=result.get("explanation")
         )
@@ -41,7 +43,6 @@ class FactCheckerEngine:
         result["cached"] = False
         result["evidence_used"] = evidence
         return result
-
 
     def search_evidence(self, claim):
         """Retrieves evidence using Tavily."""
@@ -59,31 +60,31 @@ class FactCheckerEngine:
         evidence_text = "\n".join(evidence)
 
         prompt = f"""
-You are a professional fact checker.
+        You are a professional fact checker.
 
-Claim:
-{claim}
+        Claim:
+        {claim}
 
-Evidence:
-{evidence_text}
+        Evidence:
+        {evidence_text}
 
-Determine the validity of the claim based on the evidence.
-Evaluate the claim for the following:
-1. Verdict: True, False, or Uncertain
-2. Confidence Level: High, Medium, or Low
-3. Virality Risk Score: 1-10 based on how emotionally charged and shareable the claim is.
-4. Counter-message: A short, WhatsApp-friendly debunking message in the SAME language as the original claim.
+        Determine the validity of the claim based on the evidence.
+        Evaluate the claim for the following:
+        1. Verdict: True, False, or Uncertain
+        2. Confidence Level: High, Medium, or Low
+        3. Virality Risk Score: 1-10 based on how emotionally charged and shareable the claim is.
+        4. Counter-message: A short, WhatsApp-friendly debunking message in the SAME language as the original claim.
 
-Return ONLY in this precise JSON format, without any markdown formatting wrappers:
+        Return ONLY in this precise JSON format, without any markdown formatting wrappers:
 
-{{
-  "verdict": "",
-  "confidence_level": "",
-  "virality_score": 0,
-  "counter_message": "",
-  "explanation": ""
-}}
-"""
+        {{
+          "verdict": "",
+          "confidence_level": "",
+          "virality_score": 0,
+          "counter_message": "",
+          "explanation": ""
+        }}
+        """
         response = self.genai_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt
@@ -111,17 +112,13 @@ Return ONLY in this precise JSON format, without any markdown formatting wrapper
             }
         return verdict_json
 
+# Example usage for testing the pipeline
 if __name__ == "__main__":
+    from services.vector_service import initialize_vector_db
+    initialize_vector_db() # Ensure DB is ready
+    
     engine = FactCheckerEngine()
-    
-    print("Welcome to the Fact-Checker Engine!")
-    
-    claim = input("Enter a claim to fact-check: ")
-        
-    print("Checking...")
-    result = engine.check_claim(claim)
-    
-    # Remove evidence_used from output to keep terminal clean
-    output_result = {k: v for k, v in result.items() if k != "evidence_used"}
-    print(json.dumps(output_result, indent=2))
-    print("\n" + "-"*40 + "\n")
+    test_claim = "Drinking hot lemon water cures all forms of cancer."
+    print(f"Checking claim: {test_claim}")
+    result = engine.check_claim(test_claim)
+    print(json.dumps(result, indent=2))
