@@ -2,3 +2,7 @@ fastapi
 uvicorn
 httpx
 python-dotenv
+firebase-admin
+chromadb
+sentence-transformers
+pydantic
