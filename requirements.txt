@@ -2,6 +2,9 @@ fastapi
 uvicorn
 httpx
 python-dotenv
+pytesseract
+Pillow
+
 firebase-admin
 chromadb
 sentence-transformers

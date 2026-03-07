@@ -4,13 +4,17 @@ from typing import Optional, Dict, Any
 
 class MessageRecord(BaseModel):
     id: Optional[str] = Field(None, description="Firestore document ID")
-    audio_file: Optional[str] = Field(None, description="URL to the audio file")
+    user_number: str = Field(..., description="WhatsApp user phone number")
+    audio_file: Optional[str] = Field(None, description="Path or URL to the audio file")
+    image_file: Optional[str] = Field(None, description="Path or URL to the image file")
     transcription: Optional[str] = Field(None, description="Whisper STT result")
     claim: Optional[str] = Field(None, description="Extracted claim for fact-checking")
-    verdict: Optional[str] = Field(None, description="Fact-checking result")
-    explanation: Optional[str] = Field(None, description="Detailed explanation of the verdict")
-    counter_message: Optional[str] = Field(None, description="Short debunking message")
-    confidence: float = Field(0.0, description="AI confidence score (0.0 to 1.0)")
+    verdict: Optional[str] = Field(None, description="Fact-checking result (True, Related, False, etc.)")
+    explanation: Optional[str] = Field(None, description="Brief explanation of the verdict")
+    confidence: float = Field(0.0, description="AI confidence score for the verdict")
+    virality_score: int = Field(0, description="Virality risk score (1-10)")
+    counter_message: Optional[str] = Field(None, description="Localized debunking message")
+    raw_fact_check_response: Optional[Dict[str, Any]] = Field(None, description="Complete JSON response from the fact-checker")
     timestamp: datetime = Field(default_factory=datetime.now, description="Message processing timestamp")
 
     class Config:
