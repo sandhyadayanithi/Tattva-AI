@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 class MessageRecord(BaseModel):
     id: Optional[str] = Field(None, description="Firestore document ID")
@@ -11,6 +11,7 @@ class MessageRecord(BaseModel):
     verdict: Optional[str] = Field(None, description="Fact-checking result (True, Related, False, etc.)")
     explanation: Optional[str] = Field(None, description="Brief explanation of the verdict")
     confidence: float = Field(0.0, description="AI confidence score for the verdict")
+    raw_fact_check_response: Optional[Dict[str, Any]] = Field(None, description="Complete JSON response from the fact-checker")
     timestamp: datetime = Field(default_factory=datetime.now, description="Message processing timestamp")
 
     class Config:

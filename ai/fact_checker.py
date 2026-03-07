@@ -38,8 +38,7 @@ class FactCheckerEngine:
         # 3. Store result in Vector Cache for future hits
         vector_service.store_claim(
             claim_text=claim, 
-            verdict=result.get("verdict"), 
-            explanation=result.get("explanation")
+            fact_check_result=result
         )
             
         result["cached"] = False

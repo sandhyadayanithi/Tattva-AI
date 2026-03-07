@@ -107,7 +107,8 @@ async def get_by_user(number: str):
 @app.post("/test-claim-storage")
 async def test_claim(claim: str, verdict: str, explanation: str):
     """Debug route to test caching a claim embedding."""
-    result = vector_service.store_claim(claim, verdict, explanation)
+    dummy_result = {"verdict": verdict, "explanation": explanation}
+    result = vector_service.store_claim(claim, dummy_result)
     return {"id": result, "status": "stored"}
 
 
@@ -146,7 +147,8 @@ async def background_process_audio_and_reply(sender_id: str, audio_path: str):
             claim=extracted_claim,
             verdict=verdict,
             explanation=explanation,
-            confidence=0.9 if confidence == "High" else 0.5 # Mapping scale
+            confidence=0.9 if confidence == "High" else 0.5, # Mapping scale
+            raw_fact_check_response=fact_check_result
         )
         firebase_service.save_message(message_data)
 

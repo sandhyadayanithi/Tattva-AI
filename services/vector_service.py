@@ -27,8 +27,8 @@ class VectorService:
         )
         logger.info(f"ChromaDB collection '{collection_name}' initialized in {persist_directory}.")
 
-    def store_claim(self, claim_text: str, verdict: str, explanation: str):
-        """Generates embedding for a claim and stores it with its verdict/explanation."""
+    def store_claim(self, claim_text: str, fact_check_result: dict):
+        """Generates embedding for a claim and stores it with its full JSON result."""
         try:
             # Generate claim vector embedding
             embedding = self.model.encode(claim_text).tolist()
@@ -37,13 +37,16 @@ class VectorService:
             import hashlib
             claim_id = hashlib.md5(claim_text.encode()).hexdigest()
             
+            import json
+            
             # Store in ChromaDB collection
             self.collection.add(
                 ids=[claim_id],
                 embeddings=[embedding],
                 metadatas=[{
-                    "verdict": verdict,
-                    "explanation": explanation,
+                    "verdict": str(fact_check_result.get("verdict", "")),
+                    "explanation": str(fact_check_result.get("explanation", "")),
+                    "full_response": json.dumps(fact_check_result),
                     "timestamp": datetime.now().isoformat()
                 }],
                 documents=[claim_text]
@@ -73,12 +76,20 @@ class VectorService:
                 
                 if score >= threshold:
                     logger.info(f"Semantic match found with confidence score {score:.2f}")
-                    return {
-                        "claim": results["documents"][0][0],
-                        "verdict": results["metadatas"][0][0]["verdict"],
-                        "explanation": results["metadatas"][0][0]["explanation"],
-                        "score": score
-                    }
+                    import json
+                    full_response_str = results["metadatas"][0][0].get("full_response")
+                    
+                    if full_response_str:
+                        cached_result = json.loads(full_response_str)
+                    else:
+                        cached_result = {
+                            "verdict": results["metadatas"][0][0].get("verdict", ""),
+                            "explanation": results["metadatas"][0][0].get("explanation", "")
+                        }
+                    
+                    cached_result["claim"] = results["documents"][0][0]
+                    cached_result["score"] = score
+                    return cached_result
                 else:
                     logger.info(f"No semantic match found (highest score {score:.2f} < {threshold})")
             
