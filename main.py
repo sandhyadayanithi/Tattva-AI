@@ -150,49 +150,9 @@ async def background_process_audio_and_reply(sender_id: str, audio_path: str):
         extracted_claim = pipeline_result.get("claim")
         transcription = pipeline_result.get("text")
         
-        if not extracted_claim:
-            await send_message(sender_id, "I couldn't extract a clear claim from your audio.")
-            return
-
-        # 2. Fact-Check the claim (Checks Vector Cache internally)
-        engine = FactCheckerEngine(use_llm=USE_LLM)
-        fact_check_result = engine.check_claim(extracted_claim)
-        
-        verdict = fact_check_result.get("verdict", "Unknown")
-        explanation = fact_check_result.get("explanation", "No explanation provided.")
-        confidence = fact_check_result.get("confidence_level", "Low")
-        
-        if fact_check_result.get("cached"):
-            logger.info("Found similar claim in cache.")
-            reply_text = (
-                f"🔍 *Previous Fact-Check Found*\n\n"
-                f"*Claim Detected:* \"{fact_check_result.get('claim', extracted_claim)}\"\n\n"
-                f"*Verdict:* {verdict}\n\n"
-                f"*Explanation:* {explanation}"
-            )
-        else:
-            reply_text = (
-                f"✅ *Fact-Check Complete*\n\n"
-                f"*Claim Detected:* \"{extracted_claim}\"\n\n"
-                f"*Verdict:* {verdict}\n\n"
-                f"*Explanation:* {explanation}"
-            )
-        
-        # 3. Store in Firestore (FirebaseService)
-        message_data = MessageRecord(
-            user_number=sender_id,
-            audio_file=audio_path,
-            transcription=transcription,
-            claim=extracted_claim,
-            verdict=verdict,
-            explanation=explanation,
-            confidence=0.9 if confidence == "High" else 0.5, # Mapping scale
-            raw_fact_check_response=fact_check_result
-        )
-        firebase_service.save_message(message_data)
-
-        # 4. Send the final response
-        await send_message(sender_id, reply_text)
+        import time
+        time.sleep(3) # Increased pause for Free Tier stability
+        await handle_claim_verification(sender_id, extracted_claim, transcription, audio_path, media_type="audio")
         
     except Exception as e:
         logger.error(f"Error processing audio in background: {e}")
@@ -217,7 +177,7 @@ async def background_process_image_and_reply(sender_id: str, image_path: str):
         extractor = ClaimExtractor()
         extracted_claim = extractor.extract_claim(extracted_text)
         
-        time.sleep(1) # Quota stabilization
+        time.sleep(3) # Increased pause for Free Tier stability
         await handle_claim_verification(sender_id, extracted_claim, extracted_text, image_path, media_type="image")
         
     except Exception as e:
@@ -238,7 +198,7 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
         extractor = ClaimExtractor()
         extracted_claim = extractor.extract_claim(text_content)
         
-        time.sleep(1) # Quota stabilization
+        time.sleep(3) # Increased pause for Free Tier stability
         await handle_claim_verification(sender_id, extracted_claim, text_content, None, media_type="text")
         
     except Exception as e:
@@ -321,6 +281,8 @@ def process_audio(audio_path):
         print("\n2. [SKIPPED] Claim Extraction disabled. Using raw transcription as claim.")
 
     print("\n3. Running Fact Checker Engine...")
+    import time
+    time.sleep(3) # Mandatory pause to protect Gemini Free Tier quota
     fact_checker = FactCheckerEngine(use_llm=USE_LLM)
     # This searches Tavily and optionally runs Gemini for the verdict.
     result = fact_checker.check_claim(claim)

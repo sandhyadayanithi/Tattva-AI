@@ -2,7 +2,7 @@ from tavily import TavilyClient
 import os
 import json
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
 from services.vector_service import vector_service
 from utils.logger import logger
 
@@ -106,7 +106,7 @@ class FactCheckerEngine:
         """
         import time
         max_retries = 3
-        retry_delay = 2 # Initial delay in seconds
+        retry_delay = 5 # Increased initial delay for Free Tier stability
 
         for attempt in range(max_retries):
             try:

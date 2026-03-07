@@ -1,6 +1,6 @@
 import os
-import google.generativeai as genai
-from google.generativeai import types
+from google import genai
+from google.genai import types
 
 class ClaimExtractor:
     def __init__(self):
@@ -25,13 +25,23 @@ class ClaimExtractor:
             "Extracted claim (in English):"
         )
         
-        try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
-            claim = response.text.strip()
-            return claim
-        except Exception as e:
-            print(f"Error calling Gemini API for claim extraction: {e}")
-            return None
+        import time
+        max_retries = 3
+        retry_delay = 5 # Start with a longer delay for Free Tier
+
+        for attempt in range(max_retries):
+            try:
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt
+                )
+                claim = response.text.strip()
+                return claim
+            except Exception as e:
+                if "429" in str(e) and attempt < max_retries - 1:
+                    print(f"Quota exceeded (429) in ClaimExtractor. Retrying in {retry_delay}s... (Attempt {attempt + 1}/{max_retries})")
+                    time.sleep(retry_delay)
+                    retry_delay *= 2 # Exponential backoff
+                else:
+                    print(f"Error calling Gemini API for claim extraction: {e}")
+                    return None
