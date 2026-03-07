@@ -19,7 +19,7 @@ from models.message_model import MessageRecord
 
 # --- CONFIGURATION ---
 # Set this to False if you only want to test Whisper and save Gemini API calls
-USE_LLM = False
+USE_LLM = True
 # ---------------------
 
 # Setup logging
