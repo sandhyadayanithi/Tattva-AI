@@ -6,12 +6,11 @@ class ClaimExtractor:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
         if not self.api_key:
-            raise ValueError("GEMINI_API_KEY environment variable not set. Please set it in a .env file or environment.")
-        
-        self.client = genai.Client(api_key=self.api_key)
-        self.model_name = "gemini-2.5-flash"
+            raise ValueError("GEMINI_API_KEY environment variable not set")
+        genai.configure(api_key=self.api_key)
+        self.model = genai.GenerativeModel("gemini-2.5-flash")
     
-    def extract_claim(self, transcription_text):
+    def extract_claim(self, transcription):
         """
         Extracts the core factual claim from the transcription text and translates it to English.
         """
@@ -21,17 +20,18 @@ class ClaimExtractor:
             "Ignore opinions, greetings, or conversational filler. Extract only the factual statement being made.\n\n"
             "CRITICAL INSTRUCTION: No matter what language the input transcription is in, you MUST output the extracted claim translated into ENGLISH.\n\n"
             "Output the extracted claim as a single clear sentence. Provide no other text or explanation in your output.\n\n"
-            f"Input transcription:\n{transcription_text}\n\n"
+            f"Input transcription:\n{transcription}\n\n"
             "Extracted claim (in English):"
         )
         
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt
-            )
+            response = self.model.generate_content(prompt)
             claim = response.text.strip()
+            
+            # Basic validation: If it's too short or contains common failure text
+            if len(claim) < 5 or "I cannot" in claim:
+                return None
             return claim
         except Exception as e:
-            print(f"Error calling Gemini API for claim extraction: {e}")
+            print(f"Error extracting claim with Gemini: {e}")
             return None

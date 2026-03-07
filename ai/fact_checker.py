@@ -12,10 +12,17 @@ os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
 
 class FactCheckerEngine:
     def __init__(self, use_llm=True):
+        from tavily import TavilyClient
         self.tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
         self.use_llm = use_llm
         if self.use_llm:
-            self.genai_client = genai.Client()
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                logger.error("GEMINI_API_KEY not set")
+                self.use_llm = False
+            else:
+                genai.configure(api_key=api_key)
+                self.model = genai.GenerativeModel("gemini-2.5-flash")
 
     def check_claim(self, claim):
         """Main entry point. Checks semantic cache before running full pipeline."""
@@ -110,10 +117,7 @@ class FactCheckerEngine:
 
         for attempt in range(max_retries):
             try:
-                response = self.genai_client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=prompt
-                )
+                response = self.model.generate_content(prompt)
                 content = response.text
                 break # Success, exit retry loop
             except Exception as e:
