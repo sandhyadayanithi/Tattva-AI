@@ -96,17 +96,22 @@ class FactCheckerEngine:
 
         Determine the validity of the claim based on the evidence.
         Evaluate the claim for the following:
-        1. Verdict: True, False, or Uncertain
-        2. Confidence Score: A floating point number between 0.0 and 1.0 (e.g., 0.91).
-        3. Virality Risk Score: 1-10 based on how emotionally charged and shareable the claim is.
+        1. Verdict: True, False, or Uncertain.
+        2. Confidence Level: High, Medium, or Low.
+        3. Virality Risk Score: 1-10. Use the Documented Linguistic Criteria (DLC):
+           - Sensationalism/Hyperbole: Extreme language, SHOCKING, UNBELIEVABLE.
+           - Emotional Appeal: Fear, anger, or urgency-inducing words.
+           - Imperative Language: Commands like "Share this", "Wake up".
+           - Lack of Attribution: Vague references like "Doctors say".
+           - Logical Fallacies: Implied causation without proof.
         4. Explanation: A detailed, consistent synthesis of the evidence supporting the verdict.
         5. Counter-message: A short, WhatsApp-friendly debunking message in the SAME language as the original claim.
 
         Return ONLY in this precise JSON format, without any markdown formatting wrappers:
 
         {{
-          "verdict": "",
-          "confidence_score": 0.0,
+          "verdict": "True/False/Uncertain",
+          "confidence_level": "High/Medium/Low",
           "virality_score": 0,
           "explanation": "",
           "counter_message": ""
