@@ -6,7 +6,7 @@ from utils.logger import logger
 from datetime import datetime
 
 class VectorService:
-    def __init__(self, collection_name="claims_cache", persist_directory="./vector_db"):
+    def __init__(self, collection_name="claims", persist_directory="./vector_db"):
         """Initializes ChromaDB client and sets up the claims collection."""
         # Use a lightweight, efficient embedding model
         # Using SentenceTransformer as an external embedding function for the collection
@@ -97,6 +97,42 @@ class VectorService:
         except Exception as e:
             logger.error(f"Error searching vector DB: {str(e)}")
             return None
+
+    def list_all_claims(self):
+        """Returns all stored documents and metadata so developers can verify stored data."""
+        try:
+            results = self.collection.get(
+                include=["metadatas", "documents"]
+            )
+            
+            claims_data = []
+            import json
+            
+            if results and results.get("ids"):
+                for i in range(len(results["ids"])):
+                    full_response_str = results["metadatas"][i].get("full_response")
+                    
+                    if full_response_str:
+                        metadata = json.loads(full_response_str)
+                    else:
+                        metadata = {
+                            "verdict": results["metadatas"][i].get("verdict", ""),
+                            "explanation": results["metadatas"][i].get("explanation", ""),
+                            "timestamp": results["metadatas"][i].get("timestamp", "")
+                        }
+                    
+                    claims_data.append({
+                        "id": results["ids"][i],
+                        "document": results["documents"][i],
+                        "metadata": metadata
+                    })
+                    
+            logger.info(f"Listed {len(claims_data)} claims from DB.")
+            return claims_data
+            
+        except Exception as e:
+            logger.error(f"Error listing claims from vector DB: {str(e)}")
+            return []
 
 # Singleton instance to be used across the app
 vector_service = VectorService()
