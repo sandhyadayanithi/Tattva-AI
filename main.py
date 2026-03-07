@@ -133,12 +133,17 @@ async def background_process_audio_and_reply(sender_id: str, audio_path: str):
         explanation = fact_check_result.get("explanation", "No explanation provided.")
         confidence = fact_check_result.get("confidence_level", "Low")
         
-        if fact_check_result.get("cached"):
-            logger.info("Found similar claim in cache.")
-            reply_text = f"🔍 *Found a Similar Cached Claim*\n\nClaim: {fact_check_result.get('claim', extracted_claim)}\n\n*Verdict:* {verdict}\n\n_Explanation:_ {explanation}"
-        else:
-            reply_text = f"✅ *Fact-Checked Result*\n\nClaim: {extracted_claim}\n\n*Verdict:* {verdict}\n\n_Explanation:_ {explanation}"
+        # If there's a specific counter message provided by the FactCheckerEngine, use it. 
+        # Otherwise, fallback to a standard disclaimer as the Result/Counter-Message.
+        counter_message = fact_check_result.get("counter_message", "Please verify facts through trusted news sources before forwarding on WhatsApp.")
         
+        # The user wants exact format: Verdict, Result (Counter Message), Explanation
+        reply_text = (
+            f"✅ *Fact-Checked Result*\n\n"
+            f"*Verdict:* {verdict}\n\n"
+            f"*Result:* {counter_message}\n\n"
+            f"_Explanation:_ {explanation}"
+        )
         # 3. Store in Firestore (FirebaseService)
         message_data = MessageRecord(
             user_number=sender_id,
