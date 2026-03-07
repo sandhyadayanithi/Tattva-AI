@@ -251,64 +251,57 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
     engine = FactCheckerEngine()
     fact_check_result = engine.check_claim(extracted_claim, language=language)
 
-    # 3. Prepare structured fact-check data
-    fact_check_data = {
-        "verdict": fact_check_result.get("verdict_en", "Unknown"),
-        "explanation": fact_check_result.get("explanation_en", "No explanation provided."),
-        "counter_message": fact_check_result.get("counter_message_en"),
-        "confidence": fact_check_result.get("confidence_score", 0.0),
-        "virality_score": fact_check_result.get("virality_score", 0),
-        "cached": fact_check_result.get("cached", False)
-    }
+    # 3. Extract data from result structure
+    verdict = fact_check_result.get("verdict", "FALSE")
+    
+    # Use regional fields for the display content
+    explanation = fact_check_result.get("explanation_reg", fact_check_result.get("explanation_en", "No explanation provided."))
+    virality_score = fact_check_result.get("virality_score", 0)
+    virality_reason = fact_check_result.get("virality_reason_reg", fact_check_result.get("virality_reason_en", "No reason provided."))
+    counter_message = fact_check_result.get("counter_message_reg", fact_check_result.get("counter_message_en"))
 
-    # Regional overrides (if available)
-    verdict_reg = fact_check_result.get("verdict_reg", fact_check_data["verdict"])
-    explanation_reg = fact_check_result.get("explanation_reg", fact_check_data["explanation"])
-    counter_message_reg = fact_check_result.get("counter_message_reg", fact_check_data["counter_message"])
-
-    # Internal logging only (do NOT expose cache info to users)
-    if fact_check_data["cached"]:
+    # Internal logging
+    if fact_check_result.get("cached"):
         logger.info("Fact-check result served from semantic cache.")
     else:
         logger.info("Fact-check result generated via full pipeline.")
 
-    # Always show the same header to users
-    header = "✅ *Fact-Check Complete*"
+    # 4. Format WhatsApp Message based on Verdict
+    # Follow "OUTPUT FORMAT" exactly
+    
+    reply_text = f"📢 Fact Check Result\n\n"
+    reply_text += f"Claim: {extracted_claim}\n\n"
+    reply_text += f"Verdict: {verdict}\n\n"
+    reply_text += f"Explanation:\n{explanation}\n\n"
+    reply_text += f"Virality Risk Score: {virality_score}/10\n\n"
+    reply_text += f"Reason:\n{virality_reason}"
 
-    # WhatsApp reply message
-    reply_text = (
-        f"{header}\n\n"
-        f"✅ *Verdict:* {verdict_reg}\n\n"
-        f"📩 *Result:* {counter_message_reg}\n\n"
-        f"📝 *Explanation:* {explanation_reg}"
-    )
+    if verdict == "FALSE" and counter_message:
+        reply_text += f"\n\nSuggested Counter Message:\n{counter_message}"
 
-    # 4. Store in Firestore
+    # 5. Store in Firestore (Prepare structured data for DB)
+    fact_check_db_data = {
+        "verdict": verdict,
+        "explanation": fact_check_result.get("explanation_en"),
+        "virality_score": virality_score,
+        "virality_reason": fact_check_result.get("virality_reason_en"),
+        "counter_message": fact_check_result.get("counter_message_en"),
+        "cached": fact_check_result.get("cached", False)
+    }
+
     message_data = MessageRecord(
         user_number=sender_id,
         audio_file=file_path if media_type == "audio" else None,
         image_file=file_path if media_type == "image" else None,
         transcription=full_text,
         claim=extracted_claim,
-        fact_check=fact_check_data,
+        fact_check=fact_check_db_data,
         ai_response=fact_check_result
     )
 
     firebase_service.save_message(message_data)
 
-    # 5. Send WhatsApp Reply
-    reply_counter = counter_message_reg or "I couldn't verify this claim yet."
-
-    # Always show the same header to users
-    header = "✅ *Fact-Check Complete*"
-
-    reply_text = (
-        f"{header}\n\n"
-        f"✅ *Verdict:* {verdict_reg}\n\n"
-        f"📩 *Counter Message:* {reply_counter}\n\n"
-        f"📝 *Explanation:* {explanation_reg}"
-    )
-
+    # 6. Send WhatsApp Reply
     await send_message(sender_id, reply_text)
 
 async def process_audio(audio_path):

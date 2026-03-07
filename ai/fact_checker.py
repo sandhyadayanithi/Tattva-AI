@@ -95,26 +95,25 @@ class FactCheckerEngine:
         {evidence_text}
 
         Determine the validity of the claim based on the evidence.
-        Evaluate the claim and return the results in BOTH English and {language}.
         
-        Evaluate for the following:
-        1. Verdict (True, False, or Uncertain)
-        2. Confidence Score (0.0 to 1.0)
-        3. Virality Risk Score (1-10)
-        4. Explanation (Detailed synthesis of evidence)
-        5. Counter-message (Short, WhatsApp-friendly debunking)
+        Rules:
+        1. The verdict must be ONLY one of the following: TRUE or FALSE.
+        2. Provide a short plain-language explanation in both English and {language}.
+        3. Assign a Virality Risk Score (1-10) based on linguistic cues: emotional language, urgency, conspiracy framing, authority claims, or encouragement to forward.
+        4. Provide a short reason explaining the virality score in both English and {language}.
+        5. Generate a "Suggested Counter Message" ONLY if the verdict is FALSE. This message must be short, clear, WhatsApp-friendly, and written in the same language as the original claim/detected language.
 
         Return ONLY in this precise JSON format, without any markdown formatting wrappers:
 
         {{
-          "verdict_en": "Verdict in English",
-          "explanation_en": "Detailed explanation in English",
-          "counter_message_en": "Counter-message in English",
-          "verdict_reg": "Verdict in {language}",
-          "explanation_reg": "Detailed explanation in {language}",
-          "counter_message_reg": "Counter-message in {language}",
-          "confidence_score": 0.0,
-          "virality_score": 0
+          "verdict": "TRUE or FALSE",
+          "explanation_en": "short explanation in English",
+          "explanation_reg": "short explanation in {language}",
+          "virality_score": 0,
+          "virality_reason_en": "reason for virality score in English",
+          "virality_reason_reg": "reason for virality score in {language}",
+          "counter_message_en": "short counter message in English (null if TRUE)",
+          "counter_message_reg": "short counter message in {language} (null if TRUE)"
         }}
         """
         import time
@@ -134,14 +133,14 @@ class FactCheckerEngine:
                 else:
                     logger.error(f"Error calling Gemini for verdict: {e}")
                     return {
-                        "verdict_en": "Uncertain",
+                        "verdict": "FALSE", # Default to false for safety if error
                         "explanation_en": f"API Error: {e}",
-                        "counter_message_en": "Service capacity limit reached.",
-                        "verdict_reg": "நிச்சயமற்றது",
                         "explanation_reg": f"API பிழை: {e}",
-                        "counter_message_reg": "சேவை திறன் வரம்பை எட்டியது.",
-                        "confidence_score": 0.0,
-                        "virality_score": 5
+                        "virality_score": 5,
+                        "virality_reason_en": "Service capacity limit reached.",
+                        "virality_reason_reg": "சேவை திறன் வரம்பை எட்டியது.",
+                        "counter_message_en": "Service is currently unstable. Please try again later.",
+                        "counter_message_reg": "சேவை தற்போது நிலையற்றதாக உள்ளது. பிறகு முயற்சிக்கவும்."
                     }
 
         clean_content = content.strip()
@@ -157,14 +156,14 @@ class FactCheckerEngine:
             verdict_json = json.loads(clean_content)
         except json.JSONDecodeError:
             verdict_json = {
-                "verdict_en": "Uncertain",
-                "explanation_en": "Failed to parse JSON: " + content,
-                "counter_message_en": "System error.",
-                "verdict_reg": "நிச்சயமற்றது",
-                "explanation_reg": "JSON-ஐப் பாகுபடுத்த முடியவில்லை",
-                "counter_message_reg": "அமைப்பு பிழை.",
-                "confidence_score": 0.0,
-                "virality_score": 5
+                "verdict": "FALSE",
+                "explanation_en": "Failed to parse JSON response.",
+                "explanation_reg": "பதிலைச் செயல்படுத்த முடியவில்லை.",
+                "virality_score": 5,
+                "virality_reason_en": "System parsing error.",
+                "virality_reason_reg": "அமைப்பு பிழை.",
+                "counter_message_en": "An error occurred while processing the result.",
+                "counter_message_reg": "முடிவைச் செயலாக்குவதில் பிழை ஏற்பட்டது."
             }
         return verdict_json
 
