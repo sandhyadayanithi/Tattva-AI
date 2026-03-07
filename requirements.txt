@@ -6,3 +6,6 @@ firebase-admin
 chromadb
 sentence-transformers
 pydantic
+pydantic-settings
+google-genai
+tavily-python

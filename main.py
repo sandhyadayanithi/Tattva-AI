@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks
 import logging
 from core.config import settings
 from services.whatsapp import download_media, send_message
+import json
 from ai.transcription import transcribe_audio
 from ai.claim_extractor import ClaimExtractor
 from ai.fact_checker import FactCheckerEngine
@@ -171,18 +172,28 @@ def process_audio(audio_path):
     print(f"\nDetected Language: {language}")
     print(f"Input transcription:\n{text}")
     
-    claim = None
+    claim = text  # Default to raw text
     if USE_LLM:
         print("\n2. Extracting claims with LLM...")
         extractor = ClaimExtractor()
-        claim = extractor.extract_claim(text)
-        
-        if claim:
+        extracted = extractor.extract_claim(text)
+        if extracted:
+            claim = extracted
             print(f"\nExtracted claim:\n{claim}")
         else:
             print("\nFailed to extract claim.")
     else:
-        print("\n2. [SKIPPED] LLM Claim Extraction disabled by USE_LLM flag.")
+        print("\n2. [SKIPPED] Claim Extraction disabled. Using raw transcription as claim.")
+
+    print("\n3. Running Fact Checker Engine...")
+    fact_checker = FactCheckerEngine(use_llm=USE_LLM)
+    # This searches Tavily and optionally runs Gemini for the verdict.
+    result = fact_checker.check_claim(claim)
+    
+    # Print the terminal output (filtering out the large body of evidence)
+    output_result = {k: v for k, v in result.items() if k != "evidence_used"}
+    print(json.dumps(output_result, indent=2))
+    print("\n" + "-"*40 + "\n")
         
     return {
         "text": text,
