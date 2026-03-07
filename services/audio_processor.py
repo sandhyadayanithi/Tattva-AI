@@ -3,6 +3,8 @@ from core.config import settings
 from services.whatsapp import send_message
 from services.whisper_service import transcribe_audio
 from services.claim_extractor import ClaimExtractor
+from services.fact_checker import FactCheckerEngine
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,8 @@ def process_audio(audio_path):
     print(f"Input transcription:\n{text}")
     
     claim = None
+    fact_check_result = None
+    
     if USE_LLM:
         print("\n2. Extracting claims with LLM...")
         extractor = ClaimExtractor()
@@ -46,6 +50,16 @@ def process_audio(audio_path):
         
         if claim:
             print(f"\nExtracted claim:\n{claim}")
+            
+            print("\n3. Running Fact Checker Engine...")
+            fact_checker = FactCheckerEngine()
+            fact_check_result = fact_checker.check_claim(claim)
+            
+            # Print the result to terminal without evidence
+            output_result = {k: v for k, v in fact_check_result.items() if k != "evidence_used"}
+            print(json.dumps(output_result, indent=2))
+            print("\n" + "-"*40 + "\n")
+            
         else:
             print("\nFailed to extract claim.")
     else:
@@ -54,5 +68,6 @@ def process_audio(audio_path):
     return {
         "text": text,
         "language": language,
-        "claim": claim
+        "claim": claim,
+        "fact_check_result": fact_check_result
     }

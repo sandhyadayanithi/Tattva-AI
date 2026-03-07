@@ -10,9 +10,11 @@ load_dotenv()
 os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
 
 class FactCheckerEngine:
-    def __init__(self, db_path="claims_cache.db"):
+    def __init__(self, db_path="claims_cache.db", use_llm=True):
         self.tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-        self.genai_client = genai.Client()
+        self.use_llm = use_llm
+        if self.use_llm:
+            self.genai_client = genai.Client()
         self.db_path = db_path
         self._init_db()
 
@@ -76,8 +78,17 @@ class FactCheckerEngine:
         return snippets
 
     def generate_verdict(self, claim, evidence):
-        """Uses Gemini to evaluate claim against evidence."""
+        """Uses Gemini to evaluate claim against evidence (if enabled)."""
         evidence_text = "\n".join(evidence)
+
+        if not self.use_llm:
+            return {
+                "verdict": "Uncertain (LLM Disabled)",
+                "confidence_level": "Low",
+                "virality_score": 0,
+                "counter_message": "[MOCK] LLM Fact Checking is disabled to save credits. Tavily found {} evidence snippets.".format(len(evidence)),
+                "explanation": "Fact-checking bypassed."
+            }
 
         prompt = f"""
 You are a professional fact checker.
