@@ -13,7 +13,7 @@ class ClaimExtractor:
     
     def extract_claim(self, transcription_text):
         """
-        Extracts the core factual claim from the transcription text.
+        Extracts the core factual claim from the transcription text and translates it to English.
         """
         prompt = (
             "You are a fact-checking assistant for a WhatsApp bot. "
@@ -33,6 +33,5 @@ class ClaimExtractor:
             claim = response.text.strip()
             return claim
         except Exception as e:
-            print(f"Error calling Gemini API: {e}")
+            print(f"Error calling Gemini API for claim extraction: {e}")
             return None
-
