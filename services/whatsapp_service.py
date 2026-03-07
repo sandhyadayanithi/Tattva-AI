@@ -77,39 +77,44 @@ async def mark_as_read(message_id: str):
         logger.warning(f"Failed to mark message {message_id} as read after retries.")
     return result
 
-async def download_media(media_id: str) -> str:
-    """Downloads media from WhatsApp given a media_id and returns the local file path."""
+async def download_media(media_id: str, folder="media") -> str:
+    """Downloads media from WhatsApp and returns the local file path."""
     url = f"https://graph.facebook.com/v18.0/{media_id}"
-    headers = {
-        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"
-    }
+    headers = {"Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"}
 
-    # 1. Get the media URL
-    media_data = await _request_with_retry("GET", url, headers=headers)
-    if not media_data or not media_data.get("url"):
-        logger.error(f"Could not retrieve media metadata for {media_id}")
-        return None
-        
-    media_url = media_data.get("url")
-    
-    # 2. Download the actual media file
-    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+    async with httpx.AsyncClient() as client:
         try:
-            # Note: For media downloads, we still use the token as Meta recommends
-            response = await client.get(media_url, headers=headers)
+            # 1. Get the media URL and metadata
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
+            media_data = response.json()
+            media_url = media_data.get("url")
+            mime_type = media_data.get("mime_type", "")
+            
+            if not media_url:
+                logger.error(f"No media URL found for {media_id}")
+                return None
+            
+            # Determine extension from MIME type
+            ext = ".bin"
+            if "audio/ogg" in mime_type or "audio/opus" in mime_type: ext = ".ogg"
+            elif "image/jpeg" in mime_type: ext = ".jpg"
+            elif "image/png" in mime_type: ext = ".png"
+            elif "video/mp4" in mime_type: ext = ".mp4"
+            
+            # 2. Download the actual media file
+            media_response = await client.get(media_url, headers=headers)
+            media_response.raise_for_status()
             
             # 3. Save it locally
-            os.makedirs("audio_files", exist_ok=True)
-            mime_type = media_data.get("mime_type", "")
-            ext = ".ogg" if "audio" in mime_type else ".jpg" if "image" in mime_type else ".bin"
-            
-            file_path = f"audio_files/{media_id}{ext}"
+            os.makedirs(folder, exist_ok=True)
+            file_path = f"{folder}/{media_id}{ext}"
             with open(file_path, "wb") as f:
-                f.write(response.content)
+                f.write(media_response.content)
             
-            logger.info(f"Successfully downloaded media to {file_path}")
+            logger.info(f"Successfully downloaded {mime_type} to {file_path}")
             return file_path
+            
         except Exception as e:
-            logger.error(f"Failed to download binary from {media_url}: {str(e)}")
+            logger.error(f"Media download failed: {str(e)}")
             return None

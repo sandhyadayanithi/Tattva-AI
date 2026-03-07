@@ -11,9 +11,11 @@ class MessageRecord(BaseModel):
     claim: Optional[str] = Field(None, description="Extracted claim for fact-checking")
     verdict: Optional[str] = Field(None, description="Fact-checking result (True, Related, False, etc.)")
     explanation: Optional[str] = Field(None, description="Brief explanation of the verdict")
-    confidence: float = Field(0.0, description="AI confidence score for the verdict")
+    confidence: float = Field(0.0, description="AI confidence score for the verdict (numeric)")
+    confidence_level: Optional[str] = Field(None, description="AI confidence level (High, Medium, Low)")
     virality_score: int = Field(0, description="Virality risk score (1-10)")
     counter_message: Optional[str] = Field(None, description="Localized debunking message")
+    evidence_used: Optional[list[str]] = Field(default_factory=list, description="List of evidence snippets used")
     raw_fact_check_response: Optional[Dict[str, Any]] = Field(None, description="Complete JSON response from the fact-checker")
     timestamp: datetime = Field(default_factory=datetime.now, description="Message processing timestamp")
 
