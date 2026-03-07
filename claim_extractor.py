@@ -19,9 +19,10 @@ class ClaimExtractor:
             "You are a fact-checking assistant for a WhatsApp bot. "
             "Your job is to read the following input transcription and extract the core factual claim(s) from it. "
             "Ignore opinions, greetings, or conversational filler. Extract only the factual statement being made.\n\n"
+            "CRITICAL INSTRUCTION: No matter what language the input transcription is in, you MUST output the extracted claim translated into ENGLISH.\n\n"
             "Output the extracted claim as a single clear sentence. Provide no other text or explanation in your output.\n\n"
             f"Input transcription:\n{transcription_text}\n\n"
-            "Extracted claim:"
+            "Extracted claim (in English):"
         )
         
         try:
