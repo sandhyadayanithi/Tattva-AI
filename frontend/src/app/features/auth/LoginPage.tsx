@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useAuth } from "./AuthContext";
 import { useNavigate, useLocation } from "react-router";
-import { Mail, Lock, ShieldCheck, Github, Chrome, AlertCircle } from "lucide-react";
+import { Mail, Lock, ShieldCheck, Chrome, AlertCircle } from "lucide-react";
 
 const LoginPage: React.FC = () => {
     const [email, setEmail] = useState("");
@@ -109,24 +109,17 @@ const LoginPage: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-4">
                         <button
                             onClick={handleGoogleLogin}
-                            className="flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-3 px-4 rounded-xl border border-neutral-700 transition-all"
+                            className="w-full flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-3 px-4 rounded-xl border border-neutral-700 transition-all"
                         >
                             <Chrome className="w-5 h-5 text-blue-400" />
-                            Google
-                        </button>
-                        <button className="flex items-center justify-center gap-2 bg-neutral-800 hover:bg-neutral-700 text-white font-medium py-3 px-4 rounded-xl border border-neutral-700 transition-all">
-                            <Github className="w-5 h-5" />
-                            GitHub
+                            Continue with Google
                         </button>
                     </div>
                 </div>
 
-                <p className="text-center text-neutral-500 text-sm mt-8">
-                    Admin Creds: <span className="text-neutral-300">admin@tattva.ai / admin123</span>
-                </p>
             </div>
         </div>
     );

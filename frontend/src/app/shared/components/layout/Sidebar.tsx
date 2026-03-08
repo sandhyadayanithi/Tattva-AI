@@ -6,7 +6,7 @@ const navigationItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { path: "/dashboard/history", label: "Fact Check History", icon: History },
   { path: "/dashboard/translation", label: "Language & Translation", icon: Languages },
-  { path: "/dashboard/collaboration", label: "Partner Collaboration", icon: Users },
+  { path: "/dashboard/collaboration", label: "Raise a Discrepancy", icon: Users },
 ];
 
 export default function Sidebar() {

@@ -6,7 +6,7 @@ const pageTitles: Record<string, string> = {
   "/dashboard": "Fact Check Dashboard",
   "/dashboard/history": "Fact Check History",
   "/dashboard/translation": "Language & Translation",
-  "/dashboard/collaboration": "Partner Collaboration",
+  "/dashboard/collaboration": "Raise a Discrepancy",
 };
 
 export default function DashboardLayout() {

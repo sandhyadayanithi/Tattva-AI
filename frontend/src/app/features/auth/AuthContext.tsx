@@ -79,8 +79,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const googleLogin = async (): Promise<boolean> => {
         setIsLoading(true);
         try {
-            await signInWithPopup(auth, googleProvider);
-            // The onAuthStateChanged listener will handle the user state update
+            const result = await signInWithPopup(auth, googleProvider);
+            const firebaseUser = result.user;
+
+            const role: Role = firebaseUser.email === ADMIN_EMAIL ? "admin" : "client";
+            const userData: User = {
+                email: firebaseUser.email || "",
+                role,
+                name: firebaseUser.displayName || "",
+                photoURL: firebaseUser.photoURL || ""
+            };
+
+            setUser(userData);
+            localStorage.setItem("tattva_user", JSON.stringify(userData));
+            setIsLoading(false);
             return true;
         } catch (error) {
             console.error("Google Login Error:", error);

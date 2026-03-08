@@ -12,19 +12,29 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def initialize_firebase():
-    """Initializes Firebase app using a service account JSON file from FIREBASE_KEY_PATH or default."""
+    """Initializes Firebase app using a service account JSON file or JSON string from environment."""
     try:
         if not firebase_admin._apps:
-            # Look for the credentials file from environment variables
-            cred_path = os.getenv("FIREBASE_KEY_PATH", "service_account.json")
-            logger.info(f"Using Firebase credentials from path: {cred_path}")
+            # 1. Try loading from JSON string directly (Recommended for cloud deployment)
+            json_content = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+            if json_content:
+                import json
+                logger.info("Initializing Firebase using JSON content from environment.")
+                cred_dict = json.loads(json_content)
+                cred = credentials.Certificate(cred_dict)
+                firebase_admin.initialize_app(cred)
+            else:
+                # 2. Fallback to file path
+                cred_path = os.getenv("FIREBASE_KEY_PATH", "service_account.json")
+                logger.info(f"Using Firebase credentials from path: {cred_path}")
+                
+                if not os.path.exists(cred_path):
+                    logger.warning(f"Firebase credentials not found. Ensure FIREBASE_SERVICE_ACCOUNT_JSON or {cred_path} exists.")
+                    return None
+                
+                cred = credentials.Certificate(cred_path)
+                firebase_admin.initialize_app(cred)
             
-            if not os.path.exists(cred_path):
-                logger.warning(f"Firebase credentials not found at {os.path.abspath(cred_path)}. Ensure it exists for Firestore functionality.")
-                return None
-            
-            cred = credentials.Certificate(cred_path)
-            firebase_admin.initialize_app(cred)
             logger.info("Firebase initialized successfully.")
         
         return firestore.client()
