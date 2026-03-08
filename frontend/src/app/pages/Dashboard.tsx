@@ -1,111 +1,46 @@
-import MetricCard from "../components/MetricCard";
 import {
-  LineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
+  MessageSquare,
+  CheckCircle2,
+  ShieldCheck,
+  Clock
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 
-const metricsData = [
+const stats = [
   {
-    title: "Total Messages Processed",
-    value: "2,847,392",
-    trend: 12.5,
-    sparklineData: [45, 52, 48, 61, 55, 68, 72, 69, 75],
+    title: "Total Claims",
+    value: "1,284",
+    icon: MessageSquare,
+    color: "text-blue-500",
+    bgColor: "bg-blue-500/10",
+    change: "+12%"
   },
   {
-    title: "Messages Processed Today",
-    value: "18,247",
-    trend: 8.3,
-    sparklineData: [32, 38, 35, 42, 45, 48, 52, 49, 54],
+    title: "Verified True",
+    value: "842",
+    icon: CheckCircle2,
+    color: "text-green-500",
+    bgColor: "bg-green-500/10",
+    change: "+18%"
   },
   {
-    title: "Average Processing Time",
-    value: "2.4s",
-    trend: -5.2,
-    sparklineData: [65, 62, 58, 55, 53, 51, 48, 46, 44],
+    title: "Average Confidence",
+    value: "88%",
+    icon: ShieldCheck,
+    color: "text-purple-500",
+    bgColor: "bg-purple-500/10",
+    change: "+2%"
   },
   {
-    title: "Pipeline Success Rate",
-    value: "98.7%",
-    trend: 0.4,
-    sparklineData: [95, 96, 97, 96, 98, 97, 98, 99, 98],
-  },
-  {
-    title: "Failed Jobs",
-    value: "127",
-    trend: -12.8,
-    sparklineData: [180, 165, 152, 145, 138, 132, 128, 125, 127],
-  },
-  {
-    title: "Pending Queue Size",
-    value: "342",
-    trend: 3.2,
-    sparklineData: [285, 298, 312, 305, 318, 325, 332, 338, 342],
-  },
+    title: "Pending Review",
+    value: "42",
+    icon: Clock,
+    color: "text-amber-500",
+    bgColor: "bg-amber-500/10",
+    change: "-5%"
+  }
 ];
 
-const claimsOverTimeData = [
-  { month: "Sep", claims: 245 },
-  { month: "Oct", claims: 312 },
-  { month: "Nov", claims: 428 },
-  { month: "Dec", claims: 389 },
-  { month: "Jan", claims: 502 },
-  { month: "Feb", claims: 634 },
-  { month: "Mar", claims: 718 },
-];
-
-const topicDistributionData = [
-  { name: "Health", value: 42, color: "#3b82f6" },
-  { name: "Election", value: 28, color: "#10b981" },
-  { name: "Religion", value: 18, color: "#f59e0b" },
-  { name: "Finance", value: 12, color: "#ef4444" },
-];
-
-const trendingNarratives = [
-  {
-    claim: "Fake cure for diabetes using herbal remedy spreading",
-    language: "Tamil",
-    messages: 1247,
-    virality: 8.4,
-    firstDetected: "2026-03-05 14:23",
-  },
-  {
-    claim: "False information about voting date changes",
-    language: "Hindi",
-    messages: 982,
-    virality: 9.1,
-    firstDetected: "2026-03-06 09:15",
-  },
-  {
-    claim: "Misleading financial investment scheme promise",
-    language: "Telugu",
-    messages: 756,
-    virality: 7.8,
-    firstDetected: "2026-03-04 16:42",
-  },
-  {
-    claim: "Religious misinformation about temple rituals",
-    language: "Bengali",
-    messages: 623,
-    virality: 6.9,
-    firstDetected: "2026-03-06 11:30",
-  },
-  {
-    claim: "Fake government policy announcement circulating",
-    language: "Hindi",
-    messages: 548,
-    virality: 7.5,
-    firstDetected: "2026-03-05 20:18",
-  },
-];
 
 export default function Dashboard() {
   return (
