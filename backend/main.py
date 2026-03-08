@@ -31,6 +31,15 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Tattva-AI Webhook API")
 
+# Add CORS Middleware to allow requests from the frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For production, you can list specific domains like ["https://tattva-ai.vercel.app"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.on_event("startup")
 async def startup_event():
     """
