@@ -1,21 +1,21 @@
 import { createBrowserRouter } from "react-router";
-import DashboardLayout from "./components/layout/DashboardLayout";
-import Dashboard from "./pages/Dashboard";
-import FactCheckHistory from "./pages/FactCheckHistory";
-import LanguageTranslation from "./pages/LanguageTranslation";
-import PartnerCollaboration from "./pages/PartnerCollaboration";
-import LoginPage from "./pages/LoginPage";
-import ProtectedRoute from "./components/ProtectedRoute";
+import DashboardLayout from "./shared/components/layout/DashboardLayout";
+import Dashboard from "./features/client/Dashboard";
+import FactCheckHistory from "./features/client/FactCheckHistory";
+import LanguageTranslation from "./features/client/LanguageTranslation";
+import PartnerCollaboration from "./features/client/PartnerCollaboration";
+import LoginPage from "./features/auth/LoginPage";
+import ProtectedRoute from "./shared/components/ProtectedRoute";
 
 // Admin Components & Layout
-import AdminLayout from "./components/admin/AdminLayout";
-import AdminDashboardOverview from "./pages/admin/AdminDashboardOverview";
+import AdminLayout from "./features/admin/components/AdminLayout";
+import AdminDashboardOverview from "./features/admin/AdminDashboardOverview";
 
 // Admin Sub-Pages
-import AdminTrends from "./pages/admin/MisinformationTrends";
-import AdminLanguage from "./pages/admin/LanguageAnalytics";
-import AdminFeedback from "./pages/admin/ModelFeedback";
-import AdminRepeatClaims from "./pages/admin/RepeatClaims";
+import AdminTrends from "./features/admin/MisinformationTrends";
+import AdminLanguage from "./features/admin/LanguageAnalytics";
+import AdminFeedback from "./features/admin/ModelFeedback";
+import AdminRepeatClaims from "./features/admin/RepeatClaims";
 
 export const router = createBrowserRouter([
   {
