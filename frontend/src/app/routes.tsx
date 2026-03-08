@@ -16,6 +16,7 @@ import AdminTrends from "./features/admin/MisinformationTrends";
 import AdminLanguage from "./features/admin/LanguageAnalytics";
 import AdminFeedback from "./features/admin/ModelFeedback";
 import AdminRepeatClaims from "./features/admin/RepeatClaims";
+import DiscrepancyList from "./features/admin/DiscrepancyList";
 
 export const router = createBrowserRouter([
   {
@@ -53,6 +54,7 @@ export const router = createBrowserRouter([
       { path: "language", Component: AdminLanguage },
       { path: "feedback", Component: AdminFeedback },
       { path: "repeat-claims", Component: AdminRepeatClaims },
+      { path: "discrepancies", Component: DiscrepancyList },
     ],
   },
 ]);

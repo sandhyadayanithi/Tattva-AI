@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../shared/components/ui/card";
 import { Input } from "../../shared/components/ui/input";
 import { Textarea } from "../../shared/components/ui/textarea";
@@ -10,10 +10,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../../shared/components/ui/select";
-import { mockReports, mockClaims } from "../../shared/data/mockData";
+import { mockClaims } from "../../shared/data/mockData";
 import StatusBadge from "../../shared/components/ui/StatusBadge";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
+import { db } from "../../core/firebase/firebase";
+import { collection, addDoc, onSnapshot, query, orderBy, serverTimestamp } from "firebase/firestore";
 
 export default function PartnerCollaboration() {
   const [formData, setFormData] = useState({
@@ -22,9 +24,22 @@ export default function PartnerCollaboration() {
     explanation: "",
   });
 
-  const [submittedReports, setSubmittedReports] = useState(mockReports);
+  const [submittedReports, setSubmittedReports] = useState<any[]>([]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    const q = query(collection(db, "discrepancies"), orderBy("submittedDate", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const reports = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setSubmittedReports(reports);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.claimId || !formData.issueType || !formData.explanation) {
@@ -32,21 +47,24 @@ export default function PartnerCollaboration() {
       return;
     }
 
-    const newReport = {
-      id: `DR-${String(submittedReports.length + 1).padStart(3, "0")}`,
-      claimId: formData.claimId,
-      issueType: formData.issueType,
-      submittedDate: new Date().toISOString().split("T")[0],
-      status: "Pending" as const,
-      explanation: formData.explanation,
-    };
+    try {
+      await addDoc(collection(db, "discrepancies"), {
+        claimId: formData.claimId,
+        issueType: formData.issueType,
+        explanation: formData.explanation,
+        status: "Pending",
+        submittedDate: serverTimestamp(),
+      });
 
-    setSubmittedReports([newReport, ...submittedReports]);
-    setFormData({ claimId: "", issueType: "", explanation: "" });
+      setFormData({ claimId: "", issueType: "", explanation: "" });
 
-    toast.success("Report submitted successfully", {
-      description: "Your discrepancy report has been received and will be reviewed.",
-    });
+      toast.success("Report submitted successfully", {
+        description: "Your discrepancy report has been received and will be reviewed.",
+      });
+    } catch (error) {
+      console.error("Error submitting report:", error);
+      toast.error("Failed to submit report. Please try again.");
+    }
   };
 
   return (
@@ -240,7 +258,9 @@ export default function PartnerCollaboration() {
                     <td className="py-3 px-4 text-sm text-[oklch(0.708_0_0)]">{report.claimId}</td>
                     <td className="py-3 px-4 text-sm text-white">{report.issueType}</td>
                     <td className="py-3 px-4 text-sm text-[oklch(0.708_0_0)]">
-                      {new Date(report.submittedDate).toLocaleDateString()}
+                      {report.submittedDate?.seconds
+                        ? new Date(report.submittedDate.seconds * 1000).toLocaleDateString()
+                        : "Pending..."}
                     </td>
                     <td className="py-3 px-4">
                       <StatusBadge status={report.status} />

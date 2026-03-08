@@ -11,6 +11,10 @@ import {
     LogOut,
 } from "lucide-react";
 import { useAuth } from "../../auth/AuthContext";
+import { useEffect, useState } from "react";
+import { db } from "../../../core/firebase/firebase";
+import { collection, query, orderBy, onSnapshot, limit } from "firebase/firestore";
+import { toast } from "sonner";
 
 const navigation = [
     { name: "Dashboard Overview", href: "/admin", icon: LayoutDashboard },
@@ -18,11 +22,44 @@ const navigation = [
     { name: "Repeat Claims", href: "/admin/repeat-claims", icon: RefreshCcw },
     { name: "Language Analytics", href: "/admin/language", icon: Languages },
     { name: "Model Feedback", href: "/admin/feedback", icon: MessageSquareDot },
+    { name: "Discrepancy Reports", href: "/admin/discrepancies", icon: Bell },
 ];
 
 export default function AdminLayout() {
     const location = useLocation();
     const { logout } = useAuth();
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [isInitialLoad, setIsInitialLoad] = useState(true);
+
+    useEffect(() => {
+        const q = query(collection(db, "discrepancies"), orderBy("submittedDate", "desc"), limit(20));
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            if (isInitialLoad) {
+                // Count pending reports on initial load
+                const pendingCount = snapshot.docs.filter(doc => doc.data().status === "Pending").length;
+                setUnreadCount(pendingCount);
+                setIsInitialLoad(false);
+            } else {
+                // Check if any new documents (added after initial load)
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === "added") {
+                        const data = change.doc.data();
+                        setUnreadCount(prev => prev + 1);
+                        toast.info("New Discrepancy Reported", {
+                            description: `Claim ${data.claimId}: ${data.issueType}`,
+                            action: {
+                                label: "View",
+                                onClick: () => window.location.href = "/admin/discrepancies"
+                            },
+                        });
+                    }
+                });
+            }
+        });
+
+        return () => unsubscribe();
+    }, [isInitialLoad]);
 
     return (
         <div className="dark flex h-screen bg-neutral-950 text-neutral-100">
@@ -89,10 +126,14 @@ export default function AdminLayout() {
                         </div>
 
                         {/* Notifications */}
-                        <button className="relative p-2 hover:bg-neutral-800 rounded-lg transition-colors">
+                        <Link to="/admin/discrepancies" className="relative p-2 hover:bg-neutral-800 rounded-lg transition-colors">
                             <Bell className="w-5 h-5 text-neutral-400" />
-                            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-                        </button>
+                            {unreadCount > 0 && (
+                                <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-[10px] text-white font-bold">
+                                    {unreadCount > 9 ? "9+" : unreadCount}
+                                </span>
+                            )}
+                        </Link>
 
                         {/* Admin Profile */}
                         <div className="flex items-center gap-3">
