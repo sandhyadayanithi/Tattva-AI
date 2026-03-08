@@ -364,13 +364,13 @@ async def _send_cached_result(sender_id: str, original_text: str, cached: dict):
     claim = cached.get("claim", original_text)
     language = cached.get("language", "English")
 
-    reply_text = f"📢 Fact Check Result (Cached)\n\n"
+    reply_text = f"📢 Fact Check Result\n\n"
     reply_text += f"Claim: {claim}\n\n"
     reply_text += f"Verdict: {verdict_reg}\n\n"
     reply_text += f"Explanation:\n{explanation}\n\n"
     reply_text += f"Virality Risk Score: {virality_score}/10\n\n"
     reply_text += f"Reason:\n{virality_reason}"
-    if counter_message:
+    if verdict == "FALSE" and counter_message:
         reply_text += f"\n\nSuggested Counter Message:\n{counter_message}"
 
     await send_message(sender_id, reply_text)
@@ -424,16 +424,16 @@ async def handle_claim_verification(sender_id, extracted_claim, normalized_trans
     else:
         logger.info("Fact-check result generated via full pipeline.")
 
-    header="🔎 Tattva AI Fact Check Result"
-    # Always reply to user in their regional language
-    reply_text = (
-        f"📢 *Fact Check Result*\n\n"
-        f"✅ *Verdict:* {verdict_reg}\n\n"
-        f"📝 *Explanation:* {explanation_disp}"
-    )
-    if counter_message_disp:
-        reply_text += f"\n\n📩 *Suggested Response:* {counter_message_disp}"
-    
+    # Format reply using the standardized output schema
+    reply_text = f"📢 Fact Check Result\n\n"
+    reply_text += f"Claim: {extracted_claim}\n\n"
+    reply_text += f"Verdict: {verdict_reg}\n\n"
+    reply_text += f"Explanation:\n{explanation_disp}\n\n"
+    reply_text += f"Virality Risk Score: {virality_score}/10\n\n"
+    reply_text += f"Reason:\n{virality_reason_disp}"
+    if verdict == "FALSE" and counter_message_disp:
+        reply_text += f"\n\nSuggested Counter Message:\n{counter_message_disp}"
+
     # 3. Store in Firestore (English ONLY as per user request)
     message_data = MessageRecord(
         transcript=normalized_transcript,

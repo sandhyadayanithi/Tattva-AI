@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 # WhatsApp API base
 WHATSAPP_API_URL = f"https://graph.facebook.com/v18.0/{settings.PHONE_NUMBER_ID}"
 
-# HTTP timeout
-DEFAULT_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+# HTTP timeout — 30 seconds to handle slow Graph API responses
+DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 # Resolve project root
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,10 +25,12 @@ MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 async def _request_with_retry(method: str, url: str, **kwargs):
-    """Internal helper to handle httpx requests with retries."""
+    """Internal helper to handle httpx requests with retries and exponential backoff."""
     max_retries = 3
 
     for attempt in range(max_retries):
+        attempt_num = attempt + 1
+        logger.info(f"Sending WhatsApp message attempt {attempt_num}/{max_retries} → {url}")
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             try:
                 if method.upper() == "POST":
@@ -43,27 +45,33 @@ async def _request_with_retry(method: str, url: str, **kwargs):
                 return None
 
             except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
-                logger.warning(
-                    f"Timeout on attempt {attempt + 1}/{max_retries} for {url}: {str(e)}"
-                )
+                delay = 2 ** attempt  # 1s, 2s, 4s
+                logger.warning(f"Timeout on attempt {attempt_num}/{max_retries} for {url}: {str(e)}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
+                continue
 
             except httpx.HTTPStatusError as e:
                 logger.error(
-                    f"HTTP {e.response.status_code} for {url} on attempt {attempt + 1}: {e.response.text}"
+                    f"HTTP {e.response.status_code} for {url} on attempt {attempt_num}: {e.response.text}"
                 )
-
-                # Don't retry most 4xx errors
+                # Don't retry client errors (except 429 rate-limit)
                 if e.response.status_code < 500 and e.response.status_code != 429:
                     break
+                if attempt < max_retries - 1:
+                    delay = 2 ** attempt
+                    logger.info(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
 
             except Exception as e:
-                logger.error(
-                    f"Unexpected error on attempt {attempt + 1} for {url}: {str(e)}"
-                )
+                logger.error(f"Unexpected error on attempt {attempt_num}/{max_retries} for {url}: {str(e)}")
+                if attempt < max_retries - 1:
+                    delay = 2 ** attempt
+                    logger.info(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
 
-        if attempt < max_retries - 1:
-            await asyncio.sleep(1 * (attempt + 1))
-
+    logger.error(f"All {max_retries} attempts failed for {url}. Giving up.")
     return None
 
 
@@ -147,7 +155,7 @@ async def download_media(media_id: str) -> str:
     elif "video/mp4" in mime_type:
         ext = ".mp4"
 
-    async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
         try:
             response = await client.get(media_url, headers=headers)
             response.raise_for_status()
