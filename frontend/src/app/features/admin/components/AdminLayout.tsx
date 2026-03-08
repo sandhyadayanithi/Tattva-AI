@@ -66,7 +66,10 @@ export default function AdminLayout() {
             {/* Sidebar */}
             <aside className="w-64 bg-neutral-900 border-r border-neutral-800 flex flex-col">
                 <div className="p-6 border-b border-neutral-800">
-                    <Link to="/admin">
+                    <Link to="/admin" className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center overflow-hidden shrink-0">
+                            <img src="/logo.png" alt="Tattva-AI Logo" className="w-full h-full object-contain" />
+                        </div>
                         <h1 className="text-xl font-semibold text-blue-400">MisInfo Monitor</h1>
                     </Link>
                 </div>

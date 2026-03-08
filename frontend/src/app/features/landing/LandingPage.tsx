@@ -20,24 +20,20 @@ export default function LandingPage() {
             {/* Navigation */}
             <nav className="relative z-10 flex items-center justify-between px-8 py-6 max-w-7xl mx-auto">
                 <div className="flex items-center gap-3 group">
-                    <div className="w-10 h-10 bg-gradient-to-br from-[oklch(0.488_0.243_264.376)] to-[oklch(0.645_0.246_16.439)] rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform">
-                        {/* Logo Placeholder */}
-                        <ShieldCheck className="text-white" size={24} />
-                    </div>
-                    <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
-                        Tattva-AI
-                    </span>
+                    <Link to="/" className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform overflow-hidden">
+                            <img src="/logo.png" alt="Tattva-AI Logo" className="w-full h-full object-contain" />
+                        </div>
+                        <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
+                            Tattva-AI
+                        </span>
+                    </Link>
                 </div>
 
                 <div className="flex items-center gap-4">
                     <Link to="/login">
-                        <Button variant="ghost" className="text-neutral-400 hover:text-white hover:bg-white/5">
-                            Login
-                        </Button>
-                    </Link>
-                    <Link to="/login">
-                        <Button className="bg-[oklch(0.488_0.243_264.376)] hover:bg-[oklch(0.488_0.243_264.376)]/90 text-white shadow-lg shadow-blue-500/25 px-6">
-                            Sign Up
+                        <Button className="bg-[oklch(0.488_0.243_264.376)] hover:bg-[oklch(0.488_0.243_264.376)]/90 text-white shadow-lg shadow-blue-500/25 px-8 h-11 rounded-xl font-medium">
+                            Login / Sign Up
                         </Button>
                     </Link>
                 </div>

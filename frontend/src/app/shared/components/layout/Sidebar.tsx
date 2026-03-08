@@ -16,8 +16,13 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-[oklch(0.205_0_0)] border-r border-[oklch(0.269_0_0)] flex flex-col h-screen fixed left-0 top-0">
       <div className="p-6 border-b border-[oklch(0.269_0_0)]">
-        <h1 className="text-xl text-white font-semibold">Tattva-AI</h1>
-        <p className="text-sm text-[oklch(0.708_0_0)] mt-1">Client Dashboard</p>
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center overflow-hidden shrink-0">
+            <img src="/logo.png" alt="Tattva-AI Logo" className="w-full h-full object-contain" />
+          </div>
+          <h1 className="text-xl text-white font-semibold">Tattva-AI</h1>
+        </div>
+        <p className="text-sm text-[oklch(0.708_0_0)]">Client Dashboard</p>
       </div>
       <nav className="flex-1 p-4">
         <ul className="space-y-2">
