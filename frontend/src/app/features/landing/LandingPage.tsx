@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { Button } from "../../shared/components/ui/button";
 import PrismaticBurst from "../../shared/components/ui/PrismaticBurst";
-import { ShieldCheck, Zap, Languages, Users } from "lucide-react";
+import { Megaphone, Zap, Languages, Users } from "lucide-react";
 
 export default function LandingPage() {
     return (
@@ -21,7 +21,7 @@ export default function LandingPage() {
             <nav className="relative z-10 flex items-center justify-between px-8 py-6 max-w-7xl mx-auto">
                 <div className="flex items-center gap-3 group">
                     <Link to="/" className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform overflow-hidden">
+                        <div className="w-12 h-12 flex items-center justify-center group-hover:scale-110 transition-transform overflow-hidden">
                             <img src="/logo.png" alt="Tattva-AI Logo" className="w-full h-full object-contain" />
                         </div>
                         <span className="text-2xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60">
