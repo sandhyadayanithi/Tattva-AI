@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router";
-import { LayoutDashboard, History, Languages, Users } from "lucide-react";
+import { LayoutDashboard, History, Languages, Users, LogOut } from "lucide-react";
+import { useAuth } from "../../../features/auth/AuthContext";
 
 const navigationItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -10,6 +11,7 @@ const navigationItems = [
 
 export default function Sidebar() {
   const location = useLocation();
+  const { logout } = useAuth();
 
   return (
     <aside className="w-64 bg-[oklch(0.205_0_0)] border-r border-[oklch(0.269_0_0)] flex flex-col h-screen fixed left-0 top-0">
@@ -28,8 +30,8 @@ export default function Sidebar() {
                 <Link
                   to={item.path}
                   className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
-                      ? "bg-[oklch(0.488_0.243_264.376)] text-white"
-                      : "text-[oklch(0.708_0_0)] hover:bg-[oklch(0.269_0_0)] hover:text-white"
+                    ? "bg-[oklch(0.488_0.243_264.376)] text-white"
+                    : "text-[oklch(0.708_0_0)] hover:bg-[oklch(0.269_0_0)] hover:text-white"
                     }`}
                 >
                   <Icon size={20} />
@@ -40,8 +42,15 @@ export default function Sidebar() {
           })}
         </ul>
       </nav>
-      <div className="p-4 border-t border-[oklch(0.269_0_0)]">
-        <div className="text-xs text-[oklch(0.708_0_0)]">
+      <div className="p-4 border-t border-[oklch(0.269_0_0)] space-y-4">
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-3 px-4 py-3 text-[oklch(0.708_0_0)] hover:bg-[oklch(0.269_0_0)] hover:text-red-400 rounded-lg transition-colors"
+        >
+          <LogOut size={20} />
+          <span>Logout</span>
+        </button>
+        <div className="text-xs text-[oklch(0.708_0_0)] text-center">
           © 2026 Tattva-AI Portal
         </div>
       </div>

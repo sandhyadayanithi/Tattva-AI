@@ -90,7 +90,7 @@ export default function AdminLayout() {
                 </nav>
 
                 {/* Logout Button */}
-                <div className="p-4 border-t border-neutral-800">
+                <div className="p-4 border-t border-neutral-800 mt-auto">
                     <button
                         onClick={logout}
                         className="w-full flex items-center gap-3 px-4 py-3 text-neutral-400 hover:bg-neutral-800 hover:text-red-400 rounded-lg transition-colors"
@@ -98,6 +98,9 @@ export default function AdminLayout() {
                         <LogOut className="w-5 h-5" />
                         <span>Logout</span>
                     </button>
+                    <div className="text-xs text-neutral-500 text-center mt-4">
+                        © 2026 Tattva-AI Admin
+                    </div>
                 </div>
             </aside>
 
