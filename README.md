@@ -4,6 +4,8 @@
 
 Tattva-AI is a full-stack fact-checking platform built around a WhatsApp bot. Users send a voice note, image, or text message containing a claim; the system transcribes it, extracts the core claim, verifies it against live web evidence, and replies with a verdict, virality risk score, and a suggested counter-message — all in the user's original language.
 
+# Backend Engine URL : https://tattva-ai-75su.onrender.com
+
 A companion dashboard (MisInfo Monitor) gives analysts a real-time view of trends, repeat claims, language breakdowns, and model feedback.
 
 ---
