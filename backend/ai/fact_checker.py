@@ -123,6 +123,7 @@ class FactCheckerEngine:
 
         {{
           "verdict": "TRUE or FALSE",
+          "verdict_reg": "verdict translated to {language}",
           "category": "health or election or religion or finance",
           "explanation_en": "short explanation in English",
           "explanation_reg": "short explanation in {language}",
@@ -154,6 +155,7 @@ class FactCheckerEngine:
                     logger.error(f"Error calling Gemini for verdict: {e}")
                     return {
                         "verdict": "FALSE", # Default to false for safety if error
+                        "verdict_reg": "தவறு", # Default fallback assuming Tamil format typically (since we don't have perfect knowledge)
                         "category": "health", # Default
                         "explanation_en": f"API Error: {e}",
                         "explanation_reg": f"API பிழை: {e}",
@@ -178,6 +180,7 @@ class FactCheckerEngine:
         except json.JSONDecodeError:
             verdict_json = {
                 "verdict": "FALSE",
+                "verdict_reg": "தவறு",
                 "category": "health",
                 "explanation_en": "Failed to parse JSON response.",
                 "explanation_reg": "பதிலைச் செயல்படுத்த முடியவில்லை.",

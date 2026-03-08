@@ -10,7 +10,8 @@ from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from core.config import settings
-from services.whatsapp_service import download_media, send_message, mark_as_read
+from services.whatsapp_service import download_media, send_message, mark_as_read, upload_media, send_audio_message
+from services.elevenlabs_service import generate_regional_tts
 import json
 from ai.transcription import transcribe_audio
 from ai.claim_extractor import ClaimExtractor
@@ -346,22 +347,47 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
 async def _send_cached_result(sender_id: str, original_text: str, cached: dict):
     """Formats and sends a cached fact-check result to the user over WhatsApp."""
     verdict = cached.get("verdict", "FALSE")
-    explanation = cached.get("explanation", "No explanation available.")
+    
+    # Use regional fields for display (WhatsApp)
+    verdict_reg = cached.get("verdict_reg", verdict)
+    explanation = cached.get("explanation_reg", cached.get("explanation_en", cached.get("explanation", "No explanation available.")))
     virality_score = cached.get("virality_score", 0)
-    virality_reason = cached.get("virality_reason", "")
-    counter_message = cached.get("counter_message")
+    virality_reason = cached.get("virality_reason_reg", cached.get("virality_reason_en", cached.get("virality_reason", "")))
+    counter_message = cached.get("counter_message_reg", cached.get("counter_message_en", cached.get("counter_message")))
     claim = cached.get("claim", original_text)
+    language = cached.get("language", "English")
 
-    reply_text = f"📢 Fact Check Result\n\n"
+    reply_text = f"📢 Fact Check Result (Cached)\n\n"
     reply_text += f"Claim: {claim}\n\n"
-    reply_text += f"Verdict: {verdict}\n\n"
+    reply_text += f"Verdict: {verdict_reg}\n\n"
     reply_text += f"Explanation:\n{explanation}\n\n"
     reply_text += f"Virality Risk Score: {virality_score}/10\n\n"
     reply_text += f"Reason:\n{virality_reason}"
-    if verdict == "FALSE" and counter_message:
+    if counter_message:
         reply_text += f"\n\nSuggested Counter Message:\n{counter_message}"
 
     await send_message(sender_id, reply_text)
+    
+    # Generate and Send Regional TTS Audio if not English
+    if language and language.lower() not in ["english", "en"]:
+        logger.info(f"Generating TTS for {language} output (from cache).")
+        tts_text = f"Verdict: {verdict_reg}. Explanation: {explanation}"
+        if counter_message:
+            tts_text += f" Suggested response: {counter_message}"
+            
+        audio_path = await generate_regional_tts(tts_text)
+        if audio_path:
+            media_id = await upload_media(audio_path, mime_type="audio/mpeg")
+            if media_id:
+                await send_audio_message(sender_id, media_id)
+            else:
+                logger.error("Failed to upload TTS audio to WhatsApp.")
+            
+            # Optionally clean up the local audio file to save space
+            try:
+                os.remove(audio_path)
+            except Exception as e:
+                logger.warning(f"Could not remove temporary TTS audio file {audio_path}: {e}")
 
 async def handle_claim_verification(sender_id, extracted_claim, normalized_transcript, language="English"):
     """
@@ -380,7 +406,7 @@ async def handle_claim_verification(sender_id, extracted_claim, normalized_trans
     verdict = fact_check_result.get("verdict", "FALSE")
     category = fact_check_result.get("category", "health")
 
-    # Use regional fields for display (WhatsApp)
+    verdict_reg = fact_check_result.get("verdict_reg", verdict)
     explanation_disp = fact_check_result.get("explanation_reg", fact_check_result.get("explanation_en", "No explanation provided."))
     virality_score = fact_check_result.get("virality_score", 0)
     virality_reason_disp = fact_check_result.get("virality_reason_reg", fact_check_result.get("virality_reason_en", "No reason provided."))
@@ -393,11 +419,12 @@ async def handle_claim_verification(sender_id, extracted_claim, normalized_trans
 
     # Always reply to user in their regional language
     reply_text = (
-        f"{header}\n\n"
+        f"📢 *Fact Check Result*\n\n"
         f"✅ *Verdict:* {verdict_reg}\n\n"
-        f"📩 *Result:* {counter_message_reg}\n\n"
-        f"📝 *Explanation:* {explanation_reg}"
+        f"📝 *Explanation:* {explanation_disp}"
     )
+    if counter_message_disp:
+        reply_text += f"\n\n📩 *Suggested Response:* {counter_message_disp}"
     
     # 3. Store in Firestore (English ONLY as per user request)
     message_data = MessageRecord(
@@ -413,8 +440,29 @@ async def handle_claim_verification(sender_id, extracted_claim, normalized_trans
     )
     firebase_service.save_message(message_data)
 
-    # Send WhatsApp Reply
+    # Send WhatsApp Text Reply
     await send_message(sender_id, reply_text)
+    
+    # Generate and Send Regional TTS Audio if not English
+    if language and language.lower() not in ["english", "en"]:
+        logger.info(f"Generating TTS for {language} output.")
+        tts_text = f"Verdict: {verdict_reg}. Explanation: {explanation_disp}"
+        if counter_message_disp:
+            tts_text += f" Suggested response: {counter_message_disp}"
+            
+        audio_path = await generate_regional_tts(tts_text)
+        if audio_path:
+            media_id = await upload_media(audio_path, mime_type="audio/mpeg")
+            if media_id:
+                await send_audio_message(sender_id, media_id)
+            else:
+                logger.error("Failed to upload TTS audio to WhatsApp.")
+            
+            # Optionally clean up the local audio file to save space
+            try:
+                os.remove(audio_path)
+            except Exception as e:
+                logger.warning(f"Could not remove temporary TTS audio file {audio_path}: {e}")
 
 
 async def process_audio(audio_path):
