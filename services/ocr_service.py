@@ -4,7 +4,7 @@ import os
 import sys
 import re
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
 
 class OCRService:
     def __init__(self, tesseract_path=None):
@@ -15,10 +15,11 @@ class OCRService:
         """
         load_dotenv()
         self.api_key = os.getenv("GEMINI_API_KEY")
-        self.model = None
+        self.model_name = None
+        self.client = None
         if self.api_key:
-            genai.configure(api_key=self.api_key)
-            self.model = genai.GenerativeModel("gemini-2.5-flash")
+            self.client = genai.Client(api_key=self.api_key)
+            self.model_name = "gemini-2.5-flash"
             
         if tesseract_path:
             pytesseract.pytesseract.tesseract_cmd = tesseract_path
@@ -104,7 +105,10 @@ class OCRService:
 
         for attempt in range(max_retries):
             try:
-                response = self.model.generate_content(prompt)
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt
+                )
                 return response.text.strip()
             except Exception as e:
                 if "429" in str(e) and attempt < max_retries - 1:

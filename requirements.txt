@@ -12,3 +12,4 @@ pydantic
 pydantic-settings
 google-genai
 tavily-python
+openai-whisper
