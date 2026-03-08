@@ -164,3 +164,62 @@ async def download_media(media_id: str) -> str:
         except Exception as e:
             logger.error(f"Failed to download binary from {media_url}: {str(e)}")
             return None
+
+async def upload_media(file_path: str, mime_type: str = "audio/mpeg") -> str:
+    """
+    Upload media to WhatsApp API and return the media_id.
+    """
+    url = f"{WHATSAPP_API_URL}/media"
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"
+    }
+
+    try:
+        path = Path(file_path)
+        with open(path, "rb") as f:
+            files = {
+                "file": (path.name, f, mime_type)
+            }
+            data = {
+                "messaging_product": "whatsapp"
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, headers=headers, data=data, files=files)
+                response.raise_for_status()
+                
+                result = response.json()
+                if "id" in result:
+                    logger.info(f"Media uploaded successfully, ID: {result['id']}")
+                    return result["id"]
+                return None
+    except Exception as e:
+        logger.error(f"Failed to upload media {file_path}: {e}")
+        return None
+
+async def send_audio_message(to: str, media_id: str):
+    """
+    Send an audio message using a pre-uploaded media_id.
+    """
+    url = f"{WHATSAPP_API_URL}/messages"
+    
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "audio",
+        "audio": {
+            "id": media_id
+        }
+    }
+    
+    result = await _request_with_retry("POST", url, headers=headers, json=payload)
+    
+    if result:
+        logger.info(f"Audio message sent successfully to {to}")
+        
+    return result
