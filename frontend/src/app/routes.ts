@@ -6,6 +6,13 @@ import RepeatClaims from "./pages/RepeatClaims";
 import LanguageAnalytics from "./pages/LanguageAnalytics";
 import ModelFeedback from "./pages/ModelFeedback";
 
+// Admin Pages
+import AdminDashboard from "./pages/admin/Dashboard";
+import AdminTrends from "./pages/admin/MisinformationTrends";
+import AdminLanguage from "./pages/admin/LanguageAnalytics";
+import AdminFeedback from "./pages/admin/ModelFeedback";
+import AdminRepeatClaims from "./pages/admin/RepeatClaims";
+
 export const router = createBrowserRouter([
   {
     path: "/",
@@ -16,6 +23,13 @@ export const router = createBrowserRouter([
       { path: "repeat-claims", Component: RepeatClaims },
       { path: "language", Component: LanguageAnalytics },
       { path: "feedback", Component: ModelFeedback },
+
+      // Admin Routes
+      { path: "admin", Component: AdminDashboard },
+      { path: "admin/trends", Component: AdminTrends },
+      { path: "admin/language", Component: AdminLanguage },
+      { path: "admin/feedback", Component: AdminFeedback },
+      { path: "admin/repeat-claims", Component: AdminRepeatClaims },
     ],
   },
 ]);
