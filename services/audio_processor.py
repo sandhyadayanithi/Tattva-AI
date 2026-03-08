@@ -42,7 +42,7 @@ async def background_process_audio_and_reply(sender_id: str, audio_path: str):
         counter = fact_check_result.get("counter_message_reg", fact_check_data["counter_message"]) or "I couldn't verify this claim yet."
         
         if fact_check_result.get("cached"):
-            reply_text = f"🔍 *Found a Similar Cached Claim*\n\n*Verdict:* {verdict}\n\n*Counter Message:* {counter}\n\n_Explanation:_ {explanation}"
+            reply_text = f"✅ *Fact-Checked Result*\n\n*Verdict:* {verdict}\n\n*Counter Message:* {counter}\n\n_Explanation:_ {explanation}"
         else:
             reply_text = f"✅ *Fact-Checked Result*\n\n*Verdict:* {verdict}\n\n*Counter Message:* {counter}\n\n_Explanation:_ {explanation}"
             

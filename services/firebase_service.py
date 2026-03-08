@@ -88,6 +88,10 @@ class FirebaseService:
             return []
         
         try:
+<<<<<<< HEAD
+            # Firestore query for recent messages ordered by created_at descending
+=======
+>>>>>>> 009a52ca1ffae4c2f23641b736d59688f7687a9b
             docs = self.collection.order_by("created_at", direction=firestore.Query.DESCENDING).limit(limit).stream()
             messages = [doc.to_dict() for doc in docs]
             return messages

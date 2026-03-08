@@ -17,9 +17,10 @@ def initialize_firebase():
         if not firebase_admin._apps:
             # Look for the credentials file from environment variables
             cred_path = os.getenv("FIREBASE_KEY_PATH", "service_account.json")
+            logger.info(f"Using Firebase credentials from path: {cred_path}")
             
             if not os.path.exists(cred_path):
-                logger.warning(f"Firebase credentials not found at {cred_path}. Ensure it exists for Firestore functionality.")
+                logger.warning(f"Firebase credentials not found at {os.path.abspath(cred_path)}. Ensure it exists for Firestore functionality.")
                 return None
             
             cred = credentials.Certificate(cred_path)
