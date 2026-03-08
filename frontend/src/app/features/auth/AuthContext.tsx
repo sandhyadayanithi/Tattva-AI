@@ -26,7 +26,14 @@ const ADMIN_EMAIL = "admin@tattva.ai";
 const ADMIN_PASSWORD = "admin123";
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUser] = useState<User | null>(() => {
+        const stored = localStorage.getItem("tattva_user");
+        try {
+            return stored ? JSON.parse(stored) : null;
+        } catch (e) {
+            return null;
+        }
+    });
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
@@ -43,8 +50,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 setUser(userData);
                 localStorage.setItem("tattva_user", JSON.stringify(userData));
             } else {
-                setUser(null);
-                localStorage.removeItem("tattva_user");
+                // Only clear the user if there's no manual session in localStorage
+                // This prevents manual logins (admin/email) from being cleared by the Firebase observer
+                const storedUser = localStorage.getItem("tattva_user");
+                if (!storedUser) {
+                    setUser(null);
+                } else {
+                    // Sync state with storage for manual sessions
+                    try {
+                        setUser(JSON.parse(storedUser));
+                    } catch (e) {
+                        setUser(null);
+                        localStorage.removeItem("tattva_user");
+                    }
+                }
             }
             setIsLoading(false);
         });

@@ -5,7 +5,6 @@ import {
     RefreshCcw,
     Languages,
     MessageSquareDot,
-    Search,
     Bell,
     Activity,
     LogOut,
@@ -30,37 +29,46 @@ export default function AdminLayout() {
     const location = useLocation();
     const { logout } = useAuth();
     const [unreadCount, setUnreadCount] = useState(0);
-    const [isInitialLoad, setIsInitialLoad] = useState(true);
+    const [seenIds] = useState(new Set<string>());
+    const [isFirstLoad, setIsFirstLoad] = useState(true);
 
     useEffect(() => {
-        const q = query(collection(db, "discrepancies"), orderBy("submittedDate", "desc"), limit(20));
+        const q = query(collection(db, "discrepancies"), orderBy("submittedDate", "desc"));
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            if (isInitialLoad) {
-                // Count pending reports on initial load
-                const pendingCount = snapshot.docs.filter(doc => doc.data().status === "Pending").length;
-                setUnreadCount(pendingCount);
-                setIsInitialLoad(false);
-            } else {
-                // Check if any new documents (added after initial load)
+            // Calculate total pending count across the entire collection
+            const pendingItems = snapshot.docs.filter(doc => doc.data().status === "Pending");
+            setUnreadCount(pendingItems.length);
+
+            // Toast for new additions after the first load
+            if (!isFirstLoad) {
                 snapshot.docChanges().forEach((change) => {
                     if (change.type === "added") {
                         const data = change.doc.data();
-                        setUnreadCount(prev => prev + 1);
-                        toast.info("New Discrepancy Reported", {
-                            description: `Claim ${data.claimId}: ${data.issueType}`,
-                            action: {
-                                label: "View",
-                                onClick: () => window.location.href = "/admin/discrepancies"
-                            },
-                        });
+                        const id = change.doc.id;
+
+                        // Avoid duplicates
+                        if (!seenIds.has(id)) {
+                            seenIds.add(id);
+                            toast.info("New Discrepancy Reported", {
+                                description: `Claim ${data.claimId}: ${data.issueType}`,
+                                action: {
+                                    label: "View",
+                                    onClick: () => window.location.href = "/admin/discrepancies"
+                                },
+                            });
+                        }
                     }
                 });
+            } else {
+                // Mark initial items as seen
+                snapshot.docs.forEach(doc => seenIds.add(doc.id));
+                setIsFirstLoad(false);
             }
         });
 
         return () => unsubscribe();
-    }, [isInitialLoad]);
+    }, [isFirstLoad]);
 
     return (
         <div className="dark flex h-screen bg-neutral-950 text-neutral-100">
@@ -116,16 +124,6 @@ export default function AdminLayout() {
                         Misinformation Monitoring Admin Panel
                     </h2>
                     <div className="flex items-center gap-6">
-                        {/* Search */}
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
-                            <input
-                                type="text"
-                                placeholder="Search..."
-                                className="pl-10 pr-4 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm focus:outline-none focus:border-blue-500 w-64"
-                            />
-                        </div>
-
                         {/* System Status */}
                         <div className="flex items-center gap-2 px-3 py-2 bg-green-950 border border-green-800 rounded-lg">
                             <Activity className="w-4 h-4 text-green-400" />

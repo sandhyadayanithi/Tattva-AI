@@ -105,25 +105,6 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      {/* Quick Actions */}
-      <Card className="bg-[oklch(0.205_0_0)] border-[oklch(0.269_0_0)]">
-        <CardHeader>
-          <CardTitle className="text-white">Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4">
-            <button className="flex-1 px-4 py-3 bg-[oklch(0.488_0.243_264.376)] text-white rounded-lg hover:bg-[oklch(0.488_0.243_264.376)]/90 transition-colors">
-              View Recent Claims
-            </button>
-            <button className="flex-1 px-4 py-3 bg-[oklch(0.269_0_0)] text-white rounded-lg hover:bg-[oklch(0.269_0_0)]/80 transition-colors">
-              Report Issue
-            </button>
-            <button className="flex-1 px-4 py-3 bg-[oklch(0.269_0_0)] text-white rounded-lg hover:bg-[oklch(0.269_0_0)]/80 transition-colors">
-              View Documentation
-            </button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
