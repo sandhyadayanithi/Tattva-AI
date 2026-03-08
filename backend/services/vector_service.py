@@ -56,7 +56,7 @@ class VectorService:
 
     def store_claim(self, claim_text: str, fact_check_result: dict):
         """Generates embedding for a claim and stores it with its full JSON result."""
-        if not self.collection:
+        if not self.collection or not claim_text:
             return None
         try:
             # Generate claim vector embedding
@@ -88,7 +88,7 @@ class VectorService:
 
     def find_similar_claim(self, claim_text: str, threshold: float = 0.85):
         """Searches for semantically similar claims in the cache."""
-        if not self.collection:
+        if not self.collection or not claim_text:
             return None
         try:
             # Generate query vector embedding

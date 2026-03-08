@@ -484,4 +484,5 @@ if __name__ == "__main__":
         print(f"Error: File not found: {audio_file}")
         sys.exit(1)
         
-    process_audio(audio_file)
+    import asyncio
+    asyncio.run(process_audio(audio_file))

@@ -2,7 +2,7 @@ from tavily import TavilyClient
 import os
 import json
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
 from services.vector_service import vector_service
 from utils.logger import logger
 
@@ -21,11 +21,26 @@ class FactCheckerEngine:
                 logger.error("GEMINI_API_KEY not set")
                 self.use_llm = False
             else:
-                genai.configure(api_key=api_key)
-                self.model = genai.GenerativeModel("gemini-2.5-flash")
+                self.client = genai.Client(api_key=api_key)
+                self.model_name = "gemini-2.5-flash"
 
     def check_claim(self, claim, language="English"):
         """Main entry point. Checks semantic cache before running full pipeline."""
+        if not claim:
+            logger.error("Claim is empty or None. Fact-checking bypassed.")
+            return {
+                "verdict": "Uncertain",
+                "category": "general",
+                "explanation_en": "No clear claim was identified to fact-check.",
+                "explanation_reg": "No clear claim was identified to fact-check.",
+                "virality_score": 0,
+                "virality_reason_en": "No actionable claim found.",
+                "virality_reason_reg": "No actionable claim found.",
+                "counter_message_en": "Could you please explain what you want me to check?",
+                "counter_message_reg": "Could you please explain what you want me to check?",
+                "cached": False,
+                "evidence_used": []
+            }
         # 1. Pipeline check: See if similar claim already exists in Vector DB
         logger.info(f"Checking semantic cache for: {claim}")
         similar_claim = vector_service.find_similar_claim(claim)
@@ -124,7 +139,10 @@ class FactCheckerEngine:
 
         for attempt in range(max_retries):
             try:
-                response = self.model.generate_content(prompt)
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt
+                )
                 content = response.text
                 break # Success, exit retry loop
             except Exception as e:

@@ -1,14 +1,13 @@
 import os
-import google.generativeai as genai
-from google.generativeai import types
+from google import genai
 
 class ClaimExtractor:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
-        genai.configure(api_key=self.api_key)
-        self.model = genai.GenerativeModel("gemini-2.5-flash")
+        self.client = genai.Client(api_key=self.api_key)
+        self.model_name = "gemini-2.5-flash"
     
     def extract_claim(self, transcription):
         """
@@ -39,7 +38,10 @@ class ClaimExtractor:
 
         for attempt in range(max_retries):
             try:
-                response = self.model.generate_content(prompt)
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt
+                )
                 content = response.text.strip()
                 
                 # Cleanup JSON formatting if present
