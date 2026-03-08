@@ -16,6 +16,7 @@ class MessageRecord(BaseModel):
     virality_score: int = Field(0, description="Virality risk score (1-10)")
     counter_message: Optional[str] = Field(None, description="Localized debunking message")
     evidence_used: Optional[list[str]] = Field(default_factory=list, description="List of evidence snippets used")
+    language: Optional[str] = Field("English", description="Detected language of the claim")
     raw_fact_check_response: Optional[Dict[str, Any]] = Field(None, description="Complete JSON response from the fact-checker")
     timestamp: datetime = Field(default_factory=datetime.now, description="Message processing timestamp")
 

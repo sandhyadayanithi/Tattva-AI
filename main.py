@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request, HTTPException, Response, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
 import logging
 from core.config import settings
 from services.whatsapp_service import download_media, send_message, mark_as_read
@@ -28,6 +29,15 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Tattva-AI Webhook API")
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For development, allow all
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.get("/webhook")
 async def verify_webhook(request: Request):
     """
@@ -45,6 +55,38 @@ async def verify_webhook(request: Request):
             raise HTTPException(status_code=403, detail="Verification failed")
     
     raise HTTPException(status_code=400, detail="Missing parameters")
+
+@app.get("/api/claims")
+async def get_all_claims():
+    """
+    Endpoint for the dashboard to fetch all fact-checked claims from Firestore.
+    """
+    try:
+        messages = firebase_service.get_recent_messages(limit=50)
+        
+        # Remap Firestore MessageRecord to Dashboard Claim format
+        formatted_claims = []
+        for msg in messages:
+            # Support both schemas (messages and fact_checks)
+            timestamp = msg.get("timestamp") or msg.get("created_at")
+            transcript = msg.get("transcription") or msg.get("transcript", "")
+            
+            formatted_claims.append({
+                "id": msg.get("id", "Unknown"),
+                "claimSummary": msg.get("claim", "No summary"),
+                "verdict": msg.get("verdict", "Unverified"),
+                "language": msg.get("language", "English"),
+                "confidence": int(msg.get("confidence", 0.9) * 100), # Default 90% if missing
+                "viralityRisk": msg.get("virality_score", 0),
+                "dateChecked": timestamp.isoformat() if hasattr(timestamp, 'isoformat') else str(timestamp),
+                "originalTranscript": transcript,
+                "translatedClaim": msg.get("claim", ""),
+                "explanation": msg.get("explanation", "No explanation.")
+            })
+        return formatted_claims
+    except Exception as e:
+        logger.error(f"Error fetching claims for API: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/webhook")
 async def handle_webhook(request: Request, background_tasks: BackgroundTasks):
@@ -150,50 +192,27 @@ async def background_process_audio_and_reply(sender_id: str, local_path: str, cl
         # 1. Run Pipeline (Whisper + Claim Extractor)
         pipeline_result = process_audio(local_path)
         extracted_claim = pipeline_result.get("claim")
-        detected_language = pipeline_result.get("language_name", pipeline_result.get("language", "English"))
+        detected_language = pipeline_result.get("language_name", "English")
         transcription = pipeline_result.get("text")
         
         if not extracted_claim:
             await send_message(sender_id, "I couldn't extract a clear claim from your audio.")
             return
 
-        # 2. Fact-Check the claim (Checks Vector Cache internally)
+        # 2. Fact-Check the claim
         engine = FactCheckerEngine()
-        fact_check_result = engine.check_claim(extracted_claim)
+        fact_check_result = engine.check_claim(extracted_claim, language=detected_language)
         
-        verdict = fact_check_result.get("verdict", "Unknown")
-        explanation = fact_check_result.get("explanation", "No explanation provided.")
-        confidence = fact_check_result.get("confidence_level", "Low")
-        
-        # If there's a specific counter message provided by the FactCheckerEngine, use it. 
-        # Otherwise, fallback to a standard disclaimer as the Result/Counter-Message.
-        counter_message = fact_check_result.get("counter_message", "Please verify facts through trusted news sources before forwarding on WhatsApp.")
-        
-        # The user wants exact format: Verdict, Result (Counter Message), Explanation
-        reply_text = (
-            f"✅ *Fact-Checked Result*\n\n"
-            f"*Verdict:* {verdict}\n\n"
-            f"*Result:* {counter_message}\n\n"
-            f"_Explanation:_ {explanation}"
+        # 3. Handle verification, storage and reply
+        await handle_claim_verification(
+            sender_id=sender_id,
+            extracted_claim=extracted_claim,
+            full_text=transcription,
+            file_path=cloud_url,
+            media_type="audio",
+            fact_check_result=fact_check_result,
+            language=detected_language
         )
-        # 3. Store in Firestore (FirebaseService)
-        message_data = MessageRecord(
-            user_number=sender_id,
-            audio_file=audio_path,
-            transcription=transcription,
-            claim=extracted_claim,
-            verdict=verdict,
-            explanation=explanation,
-            confidence=0.9 if confidence == "High" else 0.5, # Mapping scale
-            raw_fact_check_response=fact_check_result
-        )
-        firebase_service.save_message(message_data)
-
-        
-        # 4. If new claim and was fact-checked (not needed now for placeholder), 
-        # normally we'd do: vector_service.store_claim_embedding(extracted_claim, verdict, explanation)
-
-        await send_message(sender_id, reply_text)
         
     except Exception as e:
         logger.error(f"Error processing audio in background: {e}")
@@ -230,8 +249,20 @@ async def background_process_image_and_reply(sender_id: str, media_id: str):
         extracted_claim = extraction_result.get("claim")
         detected_language = extraction_result.get("language", "English")
         
-        time.sleep(3) # Increased pause for Free Tier stability
-        await handle_claim_verification(sender_id, extracted_claim, extracted_text, image_path, media_type="image", language=detected_language)
+        # 5. Fact-Check the claim
+        engine = FactCheckerEngine()
+        fact_check_result = engine.check_claim(extracted_claim, language=detected_language)
+
+        time.sleep(3) # Mandatory pause for Free Tier stability
+        await handle_claim_verification(
+            sender_id=sender_id, 
+            extracted_claim=extracted_claim, 
+            full_text=extracted_text, 
+            file_path=cloud_url, 
+            media_type="image", 
+            fact_check_result=fact_check_result,
+            language=detected_language
+        )
         
     except Exception as e:
         logger.error(f"Error processing image in background: {e}")
@@ -253,7 +284,7 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
         
         # 2. Fact-Check the claim
         engine = FactCheckerEngine(use_llm=settings.USE_LLM)
-        fact_check_result = engine.check_claim(extracted_claim)
+        fact_check_result = engine.check_claim(extracted_claim, language=detected_language)
 
         await handle_claim_verification(
             sender_id=sender_id,
@@ -261,29 +292,33 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
             full_text=text_content,
             file_path=None,
             media_type="text",
-            fact_check_result=fact_check_result
+            fact_check_result=fact_check_result,
+            language=detected_language
         )
         
     except Exception as e:
         logger.error(f"Error processing text in background: {e}")
         await send_message(sender_id, "An error occurred while analyzing your text claim.")
 
-async def handle_claim_verification(sender_id, extracted_claim, full_text, file_path, media_type, language="English"):
+async def handle_claim_verification(sender_id, extracted_claim, full_text, file_path, media_type, fact_check_result, language="English"):
     """Shared logic for fact-checking and reply sending."""
     if not extracted_claim:
         await send_message(sender_id, f"I couldn't extract a clear claim from your {media_type}.")
         return
 
-    verdict = fact_check_result.get("verdict", "Unknown")
-    explanation = fact_check_result.get("explanation", "No explanation provided.")
-    confidence_level = fact_check_result.get("confidence_level", "Low")
+    # English version (for DB Storage)
+    verdict_en = fact_check_result.get("verdict_en", "Unknown")
+    explanation_en = fact_check_result.get("explanation_en", "No explanation provided.")
+    counter_message_en = fact_check_result.get("counter_message_en", "")
+
+    # Regional version (for WhatsApp Reply)
+    verdict_reg = fact_check_result.get("verdict_reg", verdict_en)
+    explanation_reg = fact_check_result.get("explanation_reg", explanation_en)
+    counter_message_reg = fact_check_result.get("counter_message_reg", counter_message_en)
+
+    confidence_score = fact_check_result.get("confidence_score", 0.5)
     virality_score = fact_check_result.get("virality_score", 0)
-    counter_message = fact_check_result.get("counter_message", "")
     evidence = fact_check_result.get("evidence_used", [])
-    
-    # Map confidence to numeric
-    conf_map = {"High": 0.95, "Medium": 0.7, "Low": 0.4}
-    confidence_numeric = conf_map.get(confidence_level, 0.0)
 
     if fact_check_result.get("cached"):
         logger.info("Found similar claim in cache.")
@@ -291,30 +326,33 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
     else:
         header = "✅ *Fact-Check Complete*"
 
+    # Always reply to user in their regional language
     reply_text = (
         f"{header}\n\n"
         f"✅ *Verdict:* {verdict_reg}\n\n"
-        f"📩 *Counter Message:* {counter_message_reg}\n\n"
+        f"📩 *Result:* {counter_message_reg}\n\n"
         f"📝 *Explanation:* {explanation_reg}"
     )
     
-    # 3. Store in Firestore (English ONLY)
+    # 3. Store in Firestore (English ONLY as per user request)
     message_data = MessageRecord(
         user_number=sender_id,
         audio_file=file_path if media_type == "audio" else None,
         image_file=file_path if media_type == "image" else None,
         transcription=full_text,
         claim=extracted_claim,
-        verdict=verdict,
-        explanation=explanation,
-        confidence=confidence_numeric,
-        confidence_level=confidence_level,
+        verdict=verdict_en,
+        explanation=explanation_en,
+        confidence=confidence_score,
         virality_score=virality_score,
-        counter_message=counter_message,
+        counter_message=counter_message_en,
         evidence_used=evidence,
+        language=language,
         raw_fact_check_response=fact_check_result
     )
     firebase_service.save_message(message_data)
+
+    await send_message(sender_id, reply_text)
 
 
 def process_audio(audio_path):
@@ -349,18 +387,26 @@ def process_audio(audio_path):
     time.sleep(3) # Mandatory pause to protect Gemini Free Tier quota
     fact_checker = FactCheckerEngine(use_llm=settings.USE_LLM)
     # This searches Tavily and optionally runs Gemini for the verdict.
-    result = fact_checker.check_claim(claim, language=language_name)
+    fact_check_result = fact_checker.check_claim(claim, language=language_name)
     
-    # Print the terminal output (filtering out the large body of evidence)
-    output_result = {k: v for k, v in result.items() if k != "evidence_used"}
-    print(json.dumps(output_result, indent=2, ensure_ascii=False))
-    print("\n" + "-"*40 + "\n")
+    # 4. Handle verification (Internal mock for sender_id in CLI)
+    # In CLI mode, we just print the result instead of sending WhatsApp
+    verdict_reg = fact_check_result.get("verdict_reg", fact_check_result.get("verdict_en", "Unknown"))
+    explanation_reg = fact_check_result.get("explanation_reg", fact_check_result.get("explanation_en", "No explanation provided."))
+    counter_message_reg = fact_check_result.get("counter_message_reg", "Please verify facts.")
+
+    print(f"\n--- Fact-Check Result ({language_name}) ---")
+    print(f"Verdict: {verdict_reg}")
+    print(f"Counter Message: {counter_message_reg}")
+    print(f"Explanation: {explanation_reg}")
+    print("-" * 40)
         
     return {
         "text": text,
         "language": language,
         "language_name": language_name,
-        "claim": claim
+        "claim": claim,
+        "fact_check_result": fact_check_result
     }
 
 if __name__ == "__main__":

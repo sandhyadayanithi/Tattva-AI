@@ -6,7 +6,7 @@ from utils.logger import logger
 
 
 class FirebaseService:
-    def __init__(self, collection_name="messages"):
+    def __init__(self, collection_name="fact_checks"):
         self.collection = db.collection(collection_name) if db else None
 
     def save_message(self, message: MessageRecord):
@@ -45,8 +45,8 @@ class FirebaseService:
             return []
         
         try:
-            # Firestore query for recent messages ordered by timestamp descending
-            docs = self.collection.order_by("timestamp", direction=firestore.Query.DESCENDING).limit(limit).stream()
+            # Firestore query for recent messages ordered by created_at descending
+            docs = self.collection.order_by("created_at", direction=firestore.Query.DESCENDING).limit(limit).stream()
             messages = [doc.to_dict() for doc in docs]
             return messages
         except Exception as e:
