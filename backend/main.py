@@ -295,6 +295,7 @@ async def background_process_image_and_reply(sender_id: str, media_id: str):
         engine = FactCheckerEngine()
         fact_check_result = engine.check_claim(extracted_claim, language=detected_language)
 
+        import time
         time.sleep(3) # Mandatory pause for Free Tier stability
         await handle_claim_verification(
             sender_id=sender_id, 
@@ -320,7 +321,8 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
 
         # 1. Normalize transcript and check Firestore cache BEFORE any LLM call
         normalized = normalize_transcript(text_content)
-        logger.info(f"Transcript normalized and checked against Firestore (text pipeline).")
+        logger.info("Transcript normalized and checked against Firestore (text pipeline).")
+
         cached = firebase_service.check_transcript_cache(normalized)
         if cached:
             await _send_cached_result(sender_id, text_content, cached)
@@ -328,25 +330,26 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
 
         logger.info("No transcript match – running full pipeline (text).")
 
-        # 2. Cache miss → extract claim with LLM
-        logger.info(f"Extracting claim from text...")
+        # 2. Extract claim with LLM
+        logger.info("Extracting claim from text...")
         extractor = ClaimExtractor()
         extraction_result = extractor.extract_claim(text_content)
+
         extracted_claim = extraction_result.get("claim")
         detected_language = extraction_result.get("language", "English")
 
-        # 3. Fact-check and reply
+        # fallback if LLM fails to extract
+        if not extracted_claim:
+            extracted_claim = text_content
+
+        # 3. Run verification pipeline
         await handle_claim_verification(
             sender_id=sender_id,
             extracted_claim=extracted_claim,
-            full_text=text_content,
-            file_path=None,
-            media_type="text",
-            fact_check_result=fact_check_result,
             normalized_transcript=normalized,
             language=detected_language
         )
-        
+
     except Exception as e:
         logger.error(f"Error processing text in background: {e}")
         await send_message(sender_id, "An error occurred while analyzing your text claim.")
@@ -396,82 +399,110 @@ async def _send_cached_result(sender_id: str, original_text: str, cached: dict):
             except Exception as e:
                 logger.warning(f"Could not remove temporary TTS audio file {audio_path}: {e}")
 
-async def handle_claim_verification(sender_id, extracted_claim, normalized_transcript, language="English"):
+async def handle_claim_verification(
+    sender_id: str,
+    extracted_claim: str,
+    normalized_transcript: str = None,
+    language: str = "English",
+    **kwargs
+):
     """
     Runs the fact-check pipeline and sends a WhatsApp reply.
-    Called only on a cache MISS — normalization and Firestore cache check are done by the callers.
+    Accepts extra parameters safely (full_text, file_path, media_type, etc.)
+    so older pipeline calls won't crash.
     """
+
     if not extracted_claim:
         await send_message(sender_id, "I couldn't extract a clear claim from your message.")
         return
 
-    # Run the full fact-check pipeline
-    engine = FactCheckerEngine()
-    fact_check_result = engine.check_claim(extracted_claim, language=language)
+    try:
+        # Run fact-check pipeline
+        engine = FactCheckerEngine()
+        fact_check_result = engine.check_claim(extracted_claim, language=language)
 
-    # Extract data from result structure
-    verdict = fact_check_result.get("verdict", "FALSE")
-    category = fact_check_result.get("category", "health")
+        # Extract result fields safely
+        verdict = fact_check_result.get("verdict", "FALSE")
+        category = fact_check_result.get("category", "health")
 
-    verdict_reg = fact_check_result.get("verdict_reg", verdict)
-    explanation_disp = fact_check_result.get("explanation_reg", fact_check_result.get("explanation_en", "No explanation provided."))
-    virality_score = fact_check_result.get("virality_score", 0)
-    virality_reason_disp = fact_check_result.get("virality_reason_reg", fact_check_result.get("virality_reason_en", "No reason provided."))
-    counter_message_disp = fact_check_result.get("counter_message_reg", fact_check_result.get("counter_message_en"))
+        verdict_reg = fact_check_result.get("verdict_reg", verdict)
+        explanation_disp = fact_check_result.get(
+            "explanation_reg",
+            fact_check_result.get("explanation_en", "No explanation provided.")
+        )
 
-    if fact_check_result.get("cached"):
-        logger.info("Fact-check result served from semantic (vector) cache.")
-    else:
-        logger.info("Fact-check result generated via full pipeline.")
+        virality_score = fact_check_result.get("virality_score", 0)
+        virality_reason_disp = fact_check_result.get(
+            "virality_reason_reg",
+            fact_check_result.get("virality_reason_en", "No reason provided.")
+        )
 
-    # Format reply using the standardized output schema
-    reply_text = f"📢 Fact Check Result\n\n"
-    reply_text += f"Claim: {extracted_claim}\n\n"
-    reply_text += f"Verdict: {verdict_reg}\n\n"
-    reply_text += f"Explanation:\n{explanation_disp}\n\n"
-    reply_text += f"Virality Risk Score: {virality_score}/10\n\n"
-    reply_text += f"Reason:\n{virality_reason_disp}"
-    if verdict == "FALSE" and counter_message_disp:
-        reply_text += f"\n\nSuggested Counter Message:\n{counter_message_disp}"
+        counter_message_disp = fact_check_result.get(
+            "counter_message_reg",
+            fact_check_result.get("counter_message_en")
+        )
 
-    # 3. Store in Firestore (English ONLY as per user request)
-    message_data = MessageRecord(
-        transcript=normalized_transcript,
-        claim=extracted_claim,
-        verdict=verdict,
-        explanation=fact_check_result.get("explanation_en", explanation_disp),
-        virality_score=virality_score,
-        virality_reason=fact_check_result.get("virality_reason_en", virality_reason_disp),
-        counter_message=fact_check_result.get("counter_message_en", counter_message_disp),
-        language=language,
-        category=category
-    )
-    firebase_service.save_message(message_data)
+        if fact_check_result.get("cached"):
+            logger.info("Fact-check result served from semantic (vector) cache.")
+        else:
+            logger.info("Fact-check result generated via full pipeline.")
 
-    # Send WhatsApp Text Reply
-    await send_message(sender_id, reply_text)
-    
-    # Generate and Send Regional TTS Audio if not English
-    if language and language.lower() not in ["english", "en"]:
-        logger.info(f"Generating TTS for {language} output.")
-        tts_text = f"Verdict: {verdict_reg}. Explanation: {explanation_disp}"
-        if counter_message_disp:
-            tts_text += f" Suggested response: {counter_message_disp}"
-            
-        audio_path = await generate_regional_tts(tts_text)
-        if audio_path:
-            media_id = await upload_media(audio_path, mime_type="audio/mpeg")
-            if media_id:
-                await send_audio_message(sender_id, media_id)
-            else:
-                logger.error("Failed to upload TTS audio to WhatsApp.")
-            
-            # Optionally clean up the local audio file to save space
-            try:
-                os.remove(audio_path)
-            except Exception as e:
-                logger.warning(f"Could not remove temporary TTS audio file {audio_path}: {e}")
+        # Format WhatsApp reply
+        reply_text = f"📢 Fact Check Result\n\n"
+        reply_text += f"Claim: {extracted_claim}\n\n"
+        reply_text += f"Verdict: {verdict_reg}\n\n"
+        reply_text += f"Explanation:\n{explanation_disp}\n\n"
+        reply_text += f"Virality Risk Score: {virality_score}/10\n\n"
+        reply_text += f"Reason:\n{virality_reason_disp}"
 
+        if verdict == "FALSE" and counter_message_disp:
+            reply_text += f"\n\nSuggested Counter Message:\n{counter_message_disp}"
+
+        # Save result in Firestore
+        if normalized_transcript:
+            message_data = MessageRecord(
+                transcript=normalized_transcript,
+                claim=extracted_claim,
+                verdict=verdict,
+                explanation=fact_check_result.get("explanation_en", explanation_disp),
+                virality_score=virality_score,
+                virality_reason=fact_check_result.get("virality_reason_en", virality_reason_disp),
+                counter_message=fact_check_result.get("counter_message_en", counter_message_disp),
+                language=language,
+                category=category
+            )
+
+            firebase_service.save_message(message_data)
+
+        # Send WhatsApp reply
+        await send_message(sender_id, reply_text)
+
+        # Generate TTS for non-English outputs
+        if language and language.lower() not in ["english", "en"]:
+            logger.info(f"Generating TTS for {language}")
+
+            tts_text = f"Verdict: {verdict_reg}. Explanation: {explanation_disp}"
+            if counter_message_disp:
+                tts_text += f" Suggested response: {counter_message_disp}"
+
+            audio_path = await generate_regional_tts(tts_text)
+
+            if audio_path:
+                media_id = await upload_media(audio_path, mime_type="audio/mpeg")
+
+                if media_id:
+                    await send_audio_message(sender_id, media_id)
+                else:
+                    logger.error("Failed to upload TTS audio to WhatsApp")
+
+                try:
+                    os.remove(audio_path)
+                except Exception as e:
+                    logger.warning(f"Could not remove temporary TTS audio file {audio_path}: {e}")
+
+    except Exception as e:
+        logger.error(f"Error in claim verification pipeline: {str(e)}")
+        await send_message(sender_id, "Something went wrong while verifying the claim.")
 
 async def process_audio(audio_path):
     print(f"Processing audio file: {audio_path}")
