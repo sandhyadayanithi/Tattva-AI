@@ -3,10 +3,10 @@ import Sidebar from "./Sidebar";
 import TopNav from "./TopNav";
 
 const pageTitles: Record<string, string> = {
-  "/": "Fact Check Dashboard",
-  "/history": "Fact Check History",
-  "/translation": "Language & Translation",
-  "/collaboration": "Partner Collaboration",
+  "/dashboard": "Fact Check Dashboard",
+  "/dashboard/history": "Fact Check History",
+  "/dashboard/translation": "Language & Translation",
+  "/dashboard/collaboration": "Partner Collaboration",
 };
 
 export default function DashboardLayout() {
