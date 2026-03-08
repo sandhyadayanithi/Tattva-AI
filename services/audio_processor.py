@@ -6,6 +6,7 @@ from ai.claim_extractor import ClaimExtractor
 from ai.fact_checker import FactCheckerEngine
 from services.firebase_service import firebase_service
 from models.message_model import MessageRecord
+from utils.text_utils import normalize_transcript
 import json
 import os
 from datetime import datetime
@@ -87,9 +88,10 @@ def process_audio(audio_path, user_number="TERMINAL_USER"):
     try:
         verdict = fact_check_result.get("verdict", "FALSE")
         category = fact_check_result.get("category", "health")
+        normalized = normalize_transcript(text)
         
         message_record = MessageRecord(
-            transcript=text,
+            transcript=normalized,  # Always store normalized form
             claim=claim,
             verdict=verdict,
             explanation=fact_check_result.get("explanation_en", "No explanation provided."),

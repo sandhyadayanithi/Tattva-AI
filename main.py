@@ -18,6 +18,7 @@ from services.firebase_service import firebase_service
 from services.vector_service import vector_service
 from models.message_model import MessageRecord
 from services.ocr_service import OCRService
+from utils.text_utils import normalize_transcript
 
 # --- CONFIGURATION (Managed in core.config) ---
 # ---------------------
@@ -27,6 +28,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Tattva-AI Webhook API")
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Runs on server startup. Seeds Firestore with mock data if not already initialized.
+    """
+    try:
+        from seed_firestore import seed_data
+        logger.info("Server starting up... Checking and seeding Firestore if necessary.")
+        # Run seeding in a thread to prevent blocking main loop during large batch writes
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, seed_data)
+        logger.info("Startup seeding check complete.")
+    except Exception as e:
+        logger.error(f"Error during startup seeding: {e}")
 
 @app.get("/webhook")
 async def verify_webhook(request: Request):
@@ -216,7 +232,15 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
         if not text_content:
             await send_message(sender_id, "Your message was empty. Please provide a claim to check.")
             return
-            
+
+        # 0. Normalize transcript and check Firestore cache first
+        normalized = normalize_transcript(text_content)
+        logger.info(f"Transcript normalized and checked against Firestore (text pipeline).")
+        cached = firebase_service.check_transcript_cache(normalized)
+        if cached:
+            await _send_cached_result(sender_id, text_content, cached)
+            return
+
         # 1. Extract claim from the text
         logger.info(f"Extracting claim from text...")
         extractor = ClaimExtractor()
@@ -224,30 +248,56 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
         extracted_claim = extraction_result.get("claim")
         detected_language = extraction_result.get("language", "English")
         
-        # 2. Fact-Check the claim
-        engine = FactCheckerEngine(use_llm=settings.USE_LLM)
-        fact_check_result = engine.check_claim(extracted_claim)
-
+        # 2. Fact-Check and reply (full pipeline)
         await handle_claim_verification(
             sender_id=sender_id,
             extracted_claim=extracted_claim,
             full_text=text_content,
             file_path=None,
             media_type="text",
-            fact_check_result=fact_check_result
+            language=detected_language
         )
         
     except Exception as e:
         logger.error(f"Error processing text in background: {e}")
         await send_message(sender_id, "An error occurred while analyzing your text claim.")
 
+async def _send_cached_result(sender_id: str, original_text: str, cached: dict):
+    """Formats and sends a cached fact-check result to the user over WhatsApp."""
+    verdict = cached.get("verdict", "FALSE")
+    explanation = cached.get("explanation", "No explanation available.")
+    virality_score = cached.get("virality_score", 0)
+    virality_reason = cached.get("virality_reason", "")
+    counter_message = cached.get("counter_message")
+    claim = cached.get("claim", original_text)
+
+    reply_text = f"📢 Fact Check Result\n\n"
+    reply_text += f"Claim: {claim}\n\n"
+    reply_text += f"Verdict: {verdict}\n\n"
+    reply_text += f"Explanation:\n{explanation}\n\n"
+    reply_text += f"Virality Risk Score: {virality_score}/10\n\n"
+    reply_text += f"Reason:\n{virality_reason}"
+    if verdict == "FALSE" and counter_message:
+        reply_text += f"\n\nSuggested Counter Message:\n{counter_message}"
+
+    await send_message(sender_id, reply_text)
+
 async def handle_claim_verification(sender_id, extracted_claim, full_text, file_path, media_type, language="English"):
-    """Shared logic for fact-checking and reply sending."""
+    """Shared logic for fact-checking and reply sending, with transcript-based Firestore cache check."""
     if not extracted_claim:
         await send_message(sender_id, f"I couldn't extract a clear claim from your {media_type}.")
         return
 
-    # 2. Fact-check the claim
+    # 1. Normalize transcript and check Firestore exact-match cache
+    raw_transcript = full_text or extracted_claim
+    normalized = normalize_transcript(raw_transcript)
+    logger.info(f"Transcript normalized and checked against Firestore ({media_type} pipeline).")
+    cached = firebase_service.check_transcript_cache(normalized)
+    if cached:
+        await _send_cached_result(sender_id, raw_transcript, cached)
+        return
+
+    # 2. No cache hit — run the full fact-check pipeline
     engine = FactCheckerEngine()
     fact_check_result = engine.check_claim(extracted_claim, language=language)
 
@@ -263,7 +313,7 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
 
     # Internal logging
     if fact_check_result.get("cached"):
-        logger.info("Fact-check result served from semantic cache.")
+        logger.info("Fact-check result served from semantic (vector) cache.")
     else:
         logger.info("Fact-check result generated via full pipeline.")
 
@@ -278,10 +328,9 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
     if verdict == "FALSE" and counter_message_disp:
         reply_text += f"\n\nSuggested Counter Message:\n{counter_message_disp}"
 
-    # 5. Store in Firestore (Standardized Schema)
-    # Mapping for storage (uses English fields for explanation/reasoning where possible or as per requirement)
+    # 5. Store the normalized transcript in Firestore (Standardized Schema)
     message_data = MessageRecord(
-        transcript=full_text or extracted_claim,
+        transcript=normalized,  # Always store the normalized form
         claim=extracted_claim,
         verdict=verdict,
         explanation=fact_check_result.get("explanation_en", explanation_disp),

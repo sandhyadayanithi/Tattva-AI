@@ -29,6 +29,31 @@ class FirebaseService:
             return False, errors
         return True, []
 
+    def check_transcript_cache(self, normalized_transcript: str):
+        """
+        Queries Firestore for a previously stored result with the same normalized transcript.
+        Returns the stored document dict if found, otherwise None.
+        """
+        if not self.collection:
+            logger.error("Firebase not initialized. Cannot check transcript cache.")
+            return None
+        try:
+            docs = (
+                self.collection
+                .where("transcript", "==", normalized_transcript)
+                .limit(1)
+                .stream()
+            )
+            results = list(docs)
+            if results:
+                logger.info("Transcript cache hit – returning stored result.")
+                return results[0].to_dict()
+            logger.info("No transcript match – running full pipeline.")
+            return None
+        except Exception as e:
+            logger.error(f"Error checking transcript cache: {e}")
+            return None
+
     def save_message(self, message: MessageRecord):
         """Stores standardized fact-check records in the 'fact_checks' collection."""
         if not self.collection:

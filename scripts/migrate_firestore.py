@@ -10,6 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.firebase_config import db
 from services.firebase_service import firebase_service
 from models.message_model import MessageRecord
+from utils.text_utils import normalize_transcript
 
 load_dotenv()
 
@@ -62,9 +63,9 @@ def migrate():
             category = data.get("category") or classify_claim(claim)
             created_at = data.get("timestamp") or data.get("created_at") or firestore.SERVER_TIMESTAMP
             
-            # 2. Create Standardized Record
+            # 2. Create Standardized Record (always normalize transcript for cache consistency)
             standardized_data = {
-                "transcript": transcript,
+                "transcript": normalize_transcript(transcript),
                 "claim": claim,
                 "verdict": verdict,
                 "explanation": explanation,
