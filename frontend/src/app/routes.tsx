@@ -5,6 +5,7 @@ import FactCheckHistory from "./features/client/FactCheckHistory";
 import LanguageTranslation from "./features/client/LanguageTranslation";
 import PartnerCollaboration from "./features/client/PartnerCollaboration";
 import LoginPage from "./features/auth/LoginPage";
+import LandingPage from "./features/landing/LandingPage"; // Added import
 import ProtectedRoute from "./shared/components/ProtectedRoute";
 
 // Admin Components & Layout
@@ -21,11 +22,11 @@ import DiscrepancyList from "./features/admin/DiscrepancyList";
 export const router = createBrowserRouter([
   {
     path: "/",
-    Component: LoginPage,
+    element: <LandingPage />,
   },
   {
     path: "/login",
-    Component: LoginPage,
+    element: <LoginPage />,
   },
   {
     path: "/dashboard",
