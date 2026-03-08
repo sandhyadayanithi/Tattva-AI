@@ -230,23 +230,6 @@ async def background_process_audio_and_reply(sender_id: str, local_path: str, cl
             await send_message(sender_id, "I couldn't extract a clear claim from your audio.")
             return
 
-<<<<<<< HEAD
-        # 2. Fact-Check the claim
-        engine = FactCheckerEngine()
-        fact_check_result = engine.check_claim(extracted_claim, language=detected_language)
-        
-        # 3. Handle verification, storage and reply
-        await handle_claim_verification(
-            sender_id=sender_id,
-            extracted_claim=extracted_claim,
-            full_text=transcription,
-            file_path=cloud_url,
-            media_type="audio",
-            fact_check_result=fact_check_result,
-            language=detected_language
-        )
-        
-=======
         # 4. Fact-check, store, and reply
         await handle_claim_verification(
             sender_id=sender_id,
@@ -255,7 +238,6 @@ async def background_process_audio_and_reply(sender_id: str, local_path: str, cl
             language=lang_name
         )
 
->>>>>>> 009a52ca1ffae4c2f23641b736d59688f7687a9b
     except Exception as e:
         logger.error(f"Error processing audio in background: {e}")
         await send_message(sender_id, "An error occurred while analyzing the audio.")
@@ -313,6 +295,7 @@ async def background_process_image_and_reply(sender_id: str, media_id: str):
             file_path=cloud_url, 
             media_type="image", 
             fact_check_result=fact_check_result,
+        )
 
 
         
