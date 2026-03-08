@@ -1,7 +1,7 @@
 import logging
 from fastapi import APIRouter, Request, HTTPException, Response, BackgroundTasks
 from core.config import settings
-from services.whatsapp import download_media, send_message
+from services.whatsapp_service import download_media, send_message
 from services.audio_processor import background_process_audio_and_reply
 
 logger = logging.getLogger(__name__)

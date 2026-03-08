@@ -1,19 +1,21 @@
 import { createBrowserRouter } from "react-router";
-import DashboardLayout from "./components/layout/DashboardLayout";
-import FactCheckHistory from "./pages/FactCheckHistory";
-import LanguageTranslation from "./pages/LanguageTranslation";
-import PartnerCollaboration from "./pages/PartnerCollaboration";
+import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
+import MisinformationTrends from "./pages/MisinformationTrends";
+import RepeatClaims from "./pages/RepeatClaims";
+import LanguageAnalytics from "./pages/LanguageAnalytics";
+import ModelFeedback from "./pages/ModelFeedback";
 
 export const router = createBrowserRouter([
   {
     path: "/",
-    Component: DashboardLayout,
+    Component: Layout,
     children: [
       { index: true, Component: Dashboard },
-      { path: "history", Component: FactCheckHistory },
-      { path: "translation", Component: LanguageTranslation },
-      { path: "collaboration", Component: PartnerCollaboration },
+      { path: "trends", Component: MisinformationTrends },
+      { path: "repeat-claims", Component: RepeatClaims },
+      { path: "language", Component: LanguageAnalytics },
+      { path: "feedback", Component: ModelFeedback },
     ],
   },
 ]);

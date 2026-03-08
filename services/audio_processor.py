@@ -6,6 +6,7 @@ from ai.claim_extractor import ClaimExtractor
 from ai.fact_checker import FactCheckerEngine
 from services.firebase_service import firebase_service
 from models.message_model import MessageRecord
+from utils.text_utils import normalize_transcript
 import json
 import os
 from datetime import datetime
@@ -22,20 +23,28 @@ async def background_process_audio_and_reply(sender_id: str, audio_path: str):
         pipeline_result = process_audio(audio_path, user_number=sender_id)
         
         extracted_claim = pipeline_result.get("claim")
-        transcription = pipeline_result.get("text")
         fact_check_result = pipeline_result.get("fact_check_result")
 
         if not extracted_claim:
             await send_message(sender_id, "I couldn't extract a clear claim from your audio.")
             return
 
-        verdict = fact_check_result.get("verdict", "Unknown")
-        explanation = fact_check_result.get("explanation", "No explanation provided.")
+        # Prepare formatting data (similar to handle_claim_verification in main.py)
+        fact_check_data = {
+            "verdict": fact_check_result.get("verdict_en", "Unknown"),
+            "explanation": fact_check_result.get("explanation_en", "No explanation provided."),
+            "counter_message": fact_check_result.get("counter_message_en"),
+        }
+        
+        # WhatsApp usually prefers localized if available, but let's stick to the mapping
+        verdict = fact_check_result.get("verdict_reg", fact_check_data["verdict"])
+        explanation = fact_check_result.get("explanation_reg", fact_check_data["explanation"])
+        counter = fact_check_result.get("counter_message_reg", fact_check_data["counter_message"]) or "I couldn't verify this claim yet."
         
         if fact_check_result.get("cached"):
-            reply_text = f"🔍 *Found a Similar Cached Claim*\n\nClaim: {fact_check_result.get('claim', extracted_claim)}\n\n*Verdict:* {verdict}\n\n_Explanation:_ {explanation}"
+            reply_text = f"✅ *Fact-Checked Result*\n\n*Verdict:* {verdict}\n\n*Counter Message:* {counter}\n\n_Explanation:_ {explanation}"
         else:
-            reply_text = f"✅ *Fact-Checked Result*\n\nClaim: {extracted_claim}\n\n*Verdict:* {verdict}\n\n_Explanation:_ {explanation}"
+            reply_text = f"✅ *Fact-Checked Result*\n\n*Verdict:* {verdict}\n\n*Counter Message:* {counter}\n\n_Explanation:_ {explanation}"
             
         await send_message(sender_id, reply_text)
         
@@ -77,29 +86,20 @@ def process_audio(audio_path, user_number="TERMINAL_USER"):
     
     # 4. STORE IN FIREBASE (Unifies terminal and webhook paths!)
     try:
-        # Extract results with robust fallbacks
-        verdict = fact_check_result.get("verdict", "Unknown")
-        explanation = fact_check_result.get("explanation", "")
-        counter = fact_check_result.get("counter_message") or fact_check_result.get("counter-message") or ""
+        verdict = fact_check_result.get("verdict", "FALSE")
+        category = fact_check_result.get("category", "health")
+        normalized = normalize_transcript(text)
         
-        # Handle confidence mapping (Gemini might return confidence_score or confidence_level)
-        conf = fact_check_result.get("confidence_score")
-        if conf is None:
-            # Fallback for old cache or different LLM formats
-            level = fact_check_result.get("confidence_level", "").lower()
-            if "high" in level: conf = 0.9
-            elif "medium" in level: conf = 0.7
-            elif "low" in level: conf = 0.4
-            else: conf = 0.0
-
         message_record = MessageRecord(
-            audio_file=os.path.basename(audio_path),
-            transcription=text,
+            transcript=normalized,  # Always store normalized form
             claim=claim,
             verdict=verdict,
-            explanation=explanation,
-            counter_message=counter,
-            confidence=float(conf),
+            explanation=fact_check_result.get("explanation_en", "No explanation provided."),
+            virality_score=fact_check_result.get("virality_score", 0),
+            virality_reason=fact_check_result.get("virality_reason_en", "No reason provided."),
+            counter_message=fact_check_result.get("counter_message_en"),
+            language=language,
+            category=category
         )
         firebase_service.save_message(message_record)
     except Exception as e:
