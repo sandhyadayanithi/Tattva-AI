@@ -1,0 +1,233 @@
+import httpx
+import logging
+import asyncio
+from pathlib import Path
+from core.config import settings
+
+logger = logging.getLogger(__name__)
+
+# WhatsApp API base
+WHATSAPP_API_URL = f"https://graph.facebook.com/v18.0/{settings.PHONE_NUMBER_ID}"
+
+# HTTP timeout — 30 seconds to handle slow Graph API responses
+DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+
+# Resolve project root
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Folder where downloaded media will be stored
+AUDIO_DIR = BASE_DIR / "audio_files"
+MEDIA_DIR = BASE_DIR / "media_files"
+
+# Ensure the directories exist
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+async def _request_with_retry(method: str, url: str, **kwargs):
+    """Internal helper to handle httpx requests with retries and exponential backoff."""
+    max_retries = 3
+
+    for attempt in range(max_retries):
+        attempt_num = attempt + 1
+        logger.info(f"Sending WhatsApp message attempt {attempt_num}/{max_retries} → {url}")
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            try:
+                if method.upper() == "POST":
+                    response = await client.post(url, **kwargs)
+                else:
+                    response = await client.get(url, **kwargs)
+
+                response.raise_for_status()
+
+                if response.content:
+                    return response.json()
+                return None
+
+            except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                delay = 2 ** attempt  # 1s, 2s, 4s
+                logger.warning(f"Timeout on attempt {attempt_num}/{max_retries} for {url}: {str(e)}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
+                continue
+
+            except httpx.HTTPStatusError as e:
+                logger.error(
+                    f"HTTP {e.response.status_code} for {url} on attempt {attempt_num}: {e.response.text}"
+                )
+                # Don't retry client errors (except 429 rate-limit)
+                if e.response.status_code < 500 and e.response.status_code != 429:
+                    break
+                if attempt < max_retries - 1:
+                    delay = 2 ** attempt
+                    logger.info(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
+
+            except Exception as e:
+                logger.error(f"Unexpected error on attempt {attempt_num}/{max_retries} for {url}: {str(e)}")
+                if attempt < max_retries - 1:
+                    delay = 2 ** attempt
+                    logger.info(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
+
+    logger.error(f"All {max_retries} attempts failed for {url}. Giving up.")
+    return None
+
+
+async def send_message(to: str, text: str):
+    """Send a WhatsApp text message."""
+    url = f"{WHATSAPP_API_URL}/messages"
+
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": text},
+    }
+
+    result = await _request_with_retry("POST", url, headers=headers, json=payload)
+
+    if result:
+        logger.info(f"Message sent successfully to {to}")
+
+    return result
+
+
+async def mark_as_read(message_id: str):
+    """Mark an incoming WhatsApp message as read."""
+    url = f"{WHATSAPP_API_URL}/messages"
+
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": message_id,
+    }
+
+    result = await _request_with_retry("POST", url, headers=headers, json=payload)
+
+    if result:
+        logger.info(f"Message {message_id} marked as read")
+    else:
+        logger.warning(f"Failed to mark message {message_id} as read after retries.")
+
+    return result
+
+async def download_media(media_id: str) -> str:
+    """
+    Download WhatsApp media given a media_id.
+    Returns the absolute file path of the saved file.
+    """
+
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"
+    }
+
+    metadata_url = f"https://graph.facebook.com/v18.0/{media_id}"
+
+    media_data = await _request_with_retry("GET", metadata_url, headers=headers)
+
+    if not media_data or not media_data.get("url"):
+        logger.error(f"Could not retrieve media metadata for {media_id}")
+        return None
+
+    media_url = media_data["url"]
+    mime_type = media_data.get("mime_type", "")
+
+    # Determine extension
+    ext = ".bin"
+    if "audio/ogg" in mime_type or "audio/opus" in mime_type:
+        ext = ".ogg"
+    elif "image/jpeg" in mime_type:
+        ext = ".jpg"
+    elif "image/png" in mime_type:
+        ext = ".png"
+    elif "video/mp4" in mime_type:
+        ext = ".mp4"
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+        try:
+            response = await client.get(media_url, headers=headers)
+            response.raise_for_status()
+
+            file_path = AUDIO_DIR / f"{media_id}{ext}"
+
+            with open(file_path, "wb") as f:
+                f.write(response.content)
+
+            logger.info(f"Media downloaded successfully to: {file_path}")
+
+            return str(file_path)
+
+        except Exception as e:
+            logger.error(f"Failed to download binary from {media_url}: {str(e)}")
+            return None
+
+async def upload_media(file_path: str, mime_type: str = "audio/mpeg") -> str:
+    """
+    Upload media to WhatsApp API and return the media_id.
+    """
+    url = f"{WHATSAPP_API_URL}/media"
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}"
+    }
+
+    try:
+        path = Path(file_path)
+        with open(path, "rb") as f:
+            files = {
+                "file": (path.name, f, mime_type)
+            }
+            data = {
+                "messaging_product": "whatsapp"
+            }
+            
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, headers=headers, data=data, files=files)
+                response.raise_for_status()
+                
+                result = response.json()
+                if "id" in result:
+                    logger.info(f"Media uploaded successfully, ID: {result['id']}")
+                    return result["id"]
+                return None
+    except Exception as e:
+        logger.error(f"Failed to upload media {file_path}: {e}")
+        return None
+
+async def send_audio_message(to: str, media_id: str):
+    """
+    Send an audio message using a pre-uploaded media_id.
+    """
+    url = f"{WHATSAPP_API_URL}/messages"
+    
+    headers = {
+        "Authorization": f"Bearer {settings.WHATSAPP_ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "audio",
+        "audio": {
+            "id": media_id
+        }
+    }
+    
+    result = await _request_with_retry("POST", url, headers=headers, json=payload)
+    
+    if result:
+        logger.info(f"Audio message sent successfully to {to}")
+        
+    return result
