@@ -48,20 +48,27 @@ async def startup_event():
 @app.get("/webhook")
 async def verify_webhook(request: Request):
     """
-    Webhook verification endpoint for Meta API.
+    Webhook verification endpoint for Meta WhatsApp API.
     """
-    mode = request.query_params.get("hub.mode")
-    token = request.query_params.get("hub.verify_token")
-    challenge = request.query_params.get("hub.challenge")
 
-    if mode and token:
-        if mode == "subscribe" and token == settings.VERIFY_TOKEN:
-            logger.info("WEBHOOK_VERIFIED")
-            return Response(content=challenge, media_type="text/plain", status_code=200)
-        else:
-            raise HTTPException(status_code=403, detail="Verification failed")
-    
-    raise HTTPException(status_code=400, detail="Missing parameters")
+    params = request.query_params
+
+    # Accept both dot and underscore versions (tunnels sometimes rewrite them)
+    mode = params.get("hub.mode") or params.get("hub_mode")
+    token = params.get("hub.verify_token") or params.get("hub_verify_token")
+    challenge = params.get("hub.challenge") or params.get("hub_challenge")
+
+    logger.info(f"Webhook verification attempt: mode={mode}, token={token}, challenge={challenge}")
+
+    if not mode or not token or not challenge:
+        raise HTTPException(status_code=400, detail="Missing parameters")
+
+    # strip() protects against accidental whitespace
+    if mode == "subscribe" and token.strip() == settings.VERIFY_TOKEN.strip():
+        logger.info("WEBHOOK_VERIFIED")
+        return Response(content=challenge, media_type="text/plain", status_code=200)
+
+    raise HTTPException(status_code=403, detail="Verification failed")
 
 @app.get("/api/claims")
 async def get_all_claims():
@@ -391,6 +398,7 @@ async def handle_claim_verification(sender_id, extracted_claim, normalized_trans
     else:
         logger.info("Fact-check result generated via full pipeline.")
 
+    header="🔎 Tattva AI Fact Check Result"
     # Always reply to user in their regional language
     reply_text = (
         f"{header}\n\n"
