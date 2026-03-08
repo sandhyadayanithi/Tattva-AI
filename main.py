@@ -163,26 +163,48 @@ async def handle_voice_message_pipeline(sender_id: str, media_id: str):
 async def background_process_audio_and_reply(sender_id: str, local_path: str, cloud_url: str):
     """Background task to run the AI pipeline for audio and send the result back via WhatsApp."""
     try:
-        # 1. Run Pipeline (Whisper + Claim Extractor)
-        pipeline_result = await process_audio(local_path)
-        extracted_claim = pipeline_result.get("claim")
-        detected_language = pipeline_result.get("language_name", pipeline_result.get("language", "English"))
-        transcription = pipeline_result.get("text")
-        
+        # 1. Whisper transcription ONLY (no LLM yet)
+        logger.info("Running Whisper transcription for audio...")
+        whisper_result = await asyncio.to_thread(transcribe_audio, local_path)
+        text = whisper_result["text"]
+        language = whisper_result.get("language", "English")
+
+        print(f"\nDetected Language: {language}")
+        print(f"Input transcription:\n{text}")
+
+        # 2. Normalize transcript and check Firestore cache BEFORE any LLM call
+        normalized = normalize_transcript(text)
+        logger.info(f"Transcript normalized and checked against Firestore (audio pipeline).")
+        cached = firebase_service.check_transcript_cache(normalized)
+        if cached:
+            await _send_cached_result(sender_id, text, cached)
+            return
+
+        logger.info("No transcript match – running full pipeline (audio).")
+
+        # 3. Cache miss → extract claim with LLM
+        lang_name = "English"
+        extracted_claim = text  # fallback to raw text
+        if settings.USE_LLM:
+            logger.info("Extracting claim from audio transcription...")
+            extractor = ClaimExtractor()
+            extraction_result = extractor.extract_claim(text)
+            if extraction_result:
+                extracted_claim = extraction_result.get("claim") or text
+                lang_name = extraction_result.get("language", "English")
+
         if not extracted_claim:
             await send_message(sender_id, "I couldn't extract a clear claim from your audio.")
             return
 
-        # 2. Fact-Check, Store, and Reply (Unified logic)
+        # 4. Fact-check, store, and reply
         await handle_claim_verification(
             sender_id=sender_id,
             extracted_claim=extracted_claim,
-            full_text=transcription,
-            file_path=local_path,
-            media_type="audio",
-            language=detected_language
+            normalized_transcript=normalized,
+            language=lang_name
         )
-        
+
     except Exception as e:
         logger.error(f"Error processing audio in background: {e}")
         await send_message(sender_id, "An error occurred while analyzing the audio.")
@@ -202,7 +224,7 @@ async def background_process_image_and_reply(sender_id: str, media_id: str):
         cloud_url = storage_service.upload_file(local_path, folder="images")
         logger.info(f"Image uploaded to Cloud Storage: {cloud_url}")
 
-        # 3. Extract text from image
+        # 3. Extract text from image (OCR only, no LLM yet)
         logger.info(f"Running OCR on image: {local_path}")
         ocr_service = OCRService()
         extracted_text = ocr_service.extract_text(local_path)
@@ -210,17 +232,32 @@ async def background_process_image_and_reply(sender_id: str, media_id: str):
         if not extracted_text:
             await send_message(sender_id, "I couldn't extract any text from the image.")
             return
-            
-        # 4. Extract claim from the OCR text
+
+        # 4. Normalize and check Firestore cache BEFORE any LLM call
+        normalized = normalize_transcript(extracted_text)
+        logger.info(f"Transcript normalized and checked against Firestore (image pipeline).")
+        cached = firebase_service.check_transcript_cache(normalized)
+        if cached:
+            await _send_cached_result(sender_id, extracted_text, cached)
+            return
+
+        logger.info("No transcript match – running full pipeline (image).")
+
+        # 5. Cache miss → extract claim with LLM
         logger.info(f"Extracting claim from OCR text...")
         extractor = ClaimExtractor()
         extraction_result = extractor.extract_claim(extracted_text)
         extracted_claim = extraction_result.get("claim")
         detected_language = extraction_result.get("language", "English")
-        
+
         import time
-        time.sleep(3) # Increased pause for Free Tier stability
-        await handle_claim_verification(sender_id, extracted_claim, extracted_text, local_path, media_type="image", language=detected_language)
+        time.sleep(3)  # Pause for Free Tier stability
+        await handle_claim_verification(
+            sender_id=sender_id,
+            extracted_claim=extracted_claim,
+            normalized_transcript=normalized,
+            language=detected_language
+        )
         
     except Exception as e:
         logger.error(f"Error processing image in background: {e}")
@@ -233,7 +270,7 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
             await send_message(sender_id, "Your message was empty. Please provide a claim to check.")
             return
 
-        # 0. Normalize transcript and check Firestore cache first
+        # 1. Normalize transcript and check Firestore cache BEFORE any LLM call
         normalized = normalize_transcript(text_content)
         logger.info(f"Transcript normalized and checked against Firestore (text pipeline).")
         cached = firebase_service.check_transcript_cache(normalized)
@@ -241,20 +278,20 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
             await _send_cached_result(sender_id, text_content, cached)
             return
 
-        # 1. Extract claim from the text
+        logger.info("No transcript match – running full pipeline (text).")
+
+        # 2. Cache miss → extract claim with LLM
         logger.info(f"Extracting claim from text...")
         extractor = ClaimExtractor()
         extraction_result = extractor.extract_claim(text_content)
         extracted_claim = extraction_result.get("claim")
         detected_language = extraction_result.get("language", "English")
-        
-        # 2. Fact-Check and reply (full pipeline)
+
+        # 3. Fact-check and reply
         await handle_claim_verification(
             sender_id=sender_id,
             extracted_claim=extracted_claim,
-            full_text=text_content,
-            file_path=None,
-            media_type="text",
+            normalized_transcript=normalized,
             language=detected_language
         )
         
@@ -282,55 +319,47 @@ async def _send_cached_result(sender_id: str, original_text: str, cached: dict):
 
     await send_message(sender_id, reply_text)
 
-async def handle_claim_verification(sender_id, extracted_claim, full_text, file_path, media_type, language="English"):
-    """Shared logic for fact-checking and reply sending, with transcript-based Firestore cache check."""
+async def handle_claim_verification(sender_id, extracted_claim, normalized_transcript, language="English"):
+    """
+    Runs the fact-check pipeline and sends a WhatsApp reply.
+    Called only on a cache MISS — normalization and Firestore cache check are done by the callers.
+    """
     if not extracted_claim:
-        await send_message(sender_id, f"I couldn't extract a clear claim from your {media_type}.")
+        await send_message(sender_id, "I couldn't extract a clear claim from your message.")
         return
 
-    # 1. Normalize transcript and check Firestore exact-match cache
-    raw_transcript = full_text or extracted_claim
-    normalized = normalize_transcript(raw_transcript)
-    logger.info(f"Transcript normalized and checked against Firestore ({media_type} pipeline).")
-    cached = firebase_service.check_transcript_cache(normalized)
-    if cached:
-        await _send_cached_result(sender_id, raw_transcript, cached)
-        return
-
-    # 2. No cache hit — run the full fact-check pipeline
+    # Run the full fact-check pipeline
     engine = FactCheckerEngine()
     fact_check_result = engine.check_claim(extracted_claim, language=language)
 
-    # 3. Extract data from result structure
+    # Extract data from result structure
     verdict = fact_check_result.get("verdict", "FALSE")
     category = fact_check_result.get("category", "health")
-    
-    # Use regional fields for the display content (WhatsApp)
+
+    # Use regional fields for display (WhatsApp)
     explanation_disp = fact_check_result.get("explanation_reg", fact_check_result.get("explanation_en", "No explanation provided."))
     virality_score = fact_check_result.get("virality_score", 0)
     virality_reason_disp = fact_check_result.get("virality_reason_reg", fact_check_result.get("virality_reason_en", "No reason provided."))
     counter_message_disp = fact_check_result.get("counter_message_reg", fact_check_result.get("counter_message_en"))
 
-    # Internal logging
     if fact_check_result.get("cached"):
         logger.info("Fact-check result served from semantic (vector) cache.")
     else:
         logger.info("Fact-check result generated via full pipeline.")
 
-    # 4. Format WhatsApp Message based on Verdict (No category here)
+    # Format WhatsApp Message (category NOT included)
     reply_text = f"📢 Fact Check Result\n\n"
     reply_text += f"Claim: {extracted_claim}\n\n"
     reply_text += f"Verdict: {verdict}\n\n"
     reply_text += f"Explanation:\n{explanation_disp}\n\n"
     reply_text += f"Virality Risk Score: {virality_score}/10\n\n"
     reply_text += f"Reason:\n{virality_reason_disp}"
-
     if verdict == "FALSE" and counter_message_disp:
         reply_text += f"\n\nSuggested Counter Message:\n{counter_message_disp}"
 
-    # 5. Store the normalized transcript in Firestore (Standardized Schema)
+    # Store the normalized transcript in Firestore
     message_data = MessageRecord(
-        transcript=normalized,  # Always store the normalized form
+        transcript=normalized_transcript,
         claim=extracted_claim,
         verdict=verdict,
         explanation=fact_check_result.get("explanation_en", explanation_disp),
@@ -340,11 +369,11 @@ async def handle_claim_verification(sender_id, extracted_claim, full_text, file_
         language=language,
         category=category
     )
-
     firebase_service.save_message(message_data)
 
-    # 6. Send WhatsApp Reply
+    # Send WhatsApp Reply
     await send_message(sender_id, reply_text)
+
 
 async def process_audio(audio_path):
     print(f"Processing audio file: {audio_path}")
