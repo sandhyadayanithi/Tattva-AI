@@ -348,14 +348,11 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
         await handle_claim_verification(
             sender_id=sender_id,
             extracted_claim=extracted_claim,
-<<<<<<< HEAD
             full_text=text_content,
             file_path=None,
             media_type="text",
             fact_check_result=fact_check_result,
-=======
             normalized_transcript=normalized,
->>>>>>> 009a52ca1ffae4c2f23641b736d59688f7687a9b
             language=detected_language
         )
         
@@ -363,10 +360,6 @@ async def background_process_text_and_reply(sender_id: str, text_content: str):
         logger.error(f"Error processing text in background: {e}")
         await send_message(sender_id, "An error occurred while analyzing your text claim.")
 
-<<<<<<< HEAD
-async def handle_claim_verification(sender_id, extracted_claim, full_text, file_path, media_type, fact_check_result, language="English"):
-    """Shared logic for fact-checking and reply sending."""
-=======
 async def _send_cached_result(sender_id: str, original_text: str, cached: dict):
     """Formats and sends a cached fact-check result to the user over WhatsApp."""
     verdict = cached.get("verdict", "FALSE")
@@ -392,26 +385,10 @@ async def handle_claim_verification(sender_id, extracted_claim, normalized_trans
     Runs the fact-check pipeline and sends a WhatsApp reply.
     Called only on a cache MISS — normalization and Firestore cache check are done by the callers.
     """
->>>>>>> 009a52ca1ffae4c2f23641b736d59688f7687a9b
     if not extracted_claim:
         await send_message(sender_id, "I couldn't extract a clear claim from your message.")
         return
 
-<<<<<<< HEAD
-    # English version (for DB Storage)
-    verdict_en = fact_check_result.get("verdict_en", "Unknown")
-    explanation_en = fact_check_result.get("explanation_en", "No explanation provided.")
-    counter_message_en = fact_check_result.get("counter_message_en", "")
-
-    # Regional version (for WhatsApp Reply)
-    verdict_reg = fact_check_result.get("verdict_reg", verdict_en)
-    explanation_reg = fact_check_result.get("explanation_reg", explanation_en)
-    counter_message_reg = fact_check_result.get("counter_message_reg", counter_message_en)
-
-    confidence_score = fact_check_result.get("confidence_score", 0.5)
-    virality_score = fact_check_result.get("virality_score", 0)
-    evidence = fact_check_result.get("evidence_used", [])
-=======
     # Run the full fact-check pipeline
     engine = FactCheckerEngine()
     fact_check_result = engine.check_claim(extracted_claim, language=language)
@@ -425,14 +402,12 @@ async def handle_claim_verification(sender_id, extracted_claim, normalized_trans
     virality_score = fact_check_result.get("virality_score", 0)
     virality_reason_disp = fact_check_result.get("virality_reason_reg", fact_check_result.get("virality_reason_en", "No reason provided."))
     counter_message_disp = fact_check_result.get("counter_message_reg", fact_check_result.get("counter_message_en"))
->>>>>>> 009a52ca1ffae4c2f23641b736d59688f7687a9b
 
     if fact_check_result.get("cached"):
         logger.info("Fact-check result served from semantic (vector) cache.")
     else:
         logger.info("Fact-check result generated via full pipeline.")
 
-<<<<<<< HEAD
     # Always reply to user in their regional language
     reply_text = (
         f"{header}\n\n"
@@ -442,37 +417,9 @@ async def handle_claim_verification(sender_id, extracted_claim, normalized_trans
     )
     
     # 3. Store in Firestore (English ONLY as per user request)
-=======
-    # Format WhatsApp Message (category NOT included)
-    reply_text = f"📢 Fact Check Result\n\n"
-    reply_text += f"Claim: {extracted_claim}\n\n"
-    reply_text += f"Verdict: {verdict}\n\n"
-    reply_text += f"Explanation:\n{explanation_disp}\n\n"
-    reply_text += f"Virality Risk Score: {virality_score}/10\n\n"
-    reply_text += f"Reason:\n{virality_reason_disp}"
-    if verdict == "FALSE" and counter_message_disp:
-        reply_text += f"\n\nSuggested Counter Message:\n{counter_message_disp}"
-
-    # Store the normalized transcript in Firestore
->>>>>>> 009a52ca1ffae4c2f23641b736d59688f7687a9b
     message_data = MessageRecord(
         transcript=normalized_transcript,
         claim=extracted_claim,
-<<<<<<< HEAD
-        verdict=verdict_en,
-        explanation=explanation_en,
-        confidence=confidence_score,
-        virality_score=virality_score,
-        counter_message=counter_message_en,
-        evidence_used=evidence,
-        language=language,
-        raw_fact_check_response=fact_check_result
-    )
-    firebase_service.save_message(message_data)
-
-    await send_message(sender_id, reply_text)
-
-=======
         verdict=verdict,
         explanation=fact_check_result.get("explanation_en", explanation_disp),
         virality_score=virality_score,
@@ -485,7 +432,6 @@ async def handle_claim_verification(sender_id, extracted_claim, normalized_trans
 
     # Send WhatsApp Reply
     await send_message(sender_id, reply_text)
->>>>>>> 009a52ca1ffae4c2f23641b736d59688f7687a9b
 
 
 async def process_audio(audio_path):
